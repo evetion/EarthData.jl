@@ -5,7 +5,7 @@ nothingtype(::Type{Nothing}) = true
 nothingtype(::Type{Union{Nothing,T}}) where {T} = true
 nothingtype(x) = false
 
-function _show(io, x, compact=false)
+function _show(io, x, compact = false)
     T = typeof(x)
     print(io, T)
     if !(compact || get(io, :compact, false))

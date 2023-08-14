@@ -3,6 +3,7 @@
 
 using JSON3
 using Downloads: download
+using JuliaFormatter: format
 const version = "v1.6.4"  # make sure this aligns with EarthData itself
 
 mapping = Dict(
@@ -81,7 +82,7 @@ deref!(obj, x) = nothing
 """
 Derive Julia type from JSON Schema
 """
-function parse_type(d::Dict, required=false)::Tuple{String,Vector{String}}
+function parse_type(d::Dict, required = false)::Tuple{String,Vector{String}}
     t = get(d, "type", nothing)
     if isnothing(t)
         if haskey(d, "anyOf")
@@ -136,13 +137,16 @@ function parse_object(io, d::Dict)
     struct_mapping[d["title"]] = d["title"]
     for (k, v) in d["properties"]
         vk = occursin("-", k) ? "var\"$k\"" : k
-        haskey(v, "description") && println(nio, "\"$(v["description"])\"")
+        haskey(v, "description") && println(nio, "\t\"$(v["description"])\"")
         T, TT = parse_type(v, k in get(d, "required", String[]))
         push!(fieldtypes, TT...)
         println(nio, "\t$(vk)::$T")
     end
     println(nio, "end")
-    println(nio, "StructTypes.StructType(::Type{$(maketitle(d["title"]))}) = StructTypes.Struct()\n\n")
+    println(
+        nio,
+        "StructTypes.StructType(::Type{$(maketitle(d["title"]))}) = StructTypes.Struct()\n\n",
+    )
     _write(io, structs)
 end
 
@@ -194,7 +198,10 @@ function parse_definition(structs, d::Dict, title)
         end
 
         println(nio, "end")
-        println(nio, "StructTypes.StructType(::Type{$(maketitle(title))}) = StructTypes.Struct()\n\n")
+        println(
+            nio,
+            "StructTypes.StructType(::Type{$(maketitle(title))}) = StructTypes.Struct()\n\n",
+        )
     elseif isnothing(T) && haskey(d, "anyOf")
         struct_mapping[title] = "Union{$(join(map(x -> parse_type(x, true)[1], d["anyOf"]), ","))}"
     elseif !isnothing(T)
@@ -205,7 +212,8 @@ function parse_definition(structs, d::Dict, title)
 end
 
 
-fn = download("https://cdn.earthdata.nasa.gov/umm/granule/$(version)/umm-g-json-schema.json")
+fn =
+    download("https://cdn.earthdata.nasa.gov/umm/granule/$(version)/umm-g-json-schema.json")
 schema = JSON3.read(fn)
 
 # Replace all Symbols with Strings
@@ -216,3 +224,6 @@ deref!(sch)
 open("src/granuletypes.jl", "w") do io
     parse_object(io, sch)
 end
+
+# run JuliaFormatter on the whole package
+format(joinpath(@__DIR__, ".."))

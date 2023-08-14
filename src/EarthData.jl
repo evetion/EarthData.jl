@@ -54,40 +54,40 @@ As documented by https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html
 See `fieldnames(GranuleRequest)` for a list of all possible keywords.
 """
 Base.@kwdef struct GranuleRequest <: AbstractRequest
-    collection_concept_id
-    granule_ur
-    readable_granule_name
-    online_only
-    downloadable
-    browsable
-    attribute
-    polygon
-    equator_crossing_longitude
-    equator_crossing_date
-    updated_since
-    revision_date
-    created_at
-    production_date
-    cloud_cover
-    platform
-    instrument
-    sensor
-    project
-    concept_id
-    echo_granule_id
-    echo_collection_id
-    day_night_flag
-    two_d_coordinate_system
-    provider
-    native_id
-    short_name
-    version
-    entry_title
-    entry_id
-    temporal
-    cycle
-    passes
-    sort_key
+    collection_concept_id::Any
+    granule_ur::Any
+    readable_granule_name::Any
+    online_only::Any
+    downloadable::Any
+    browsable::Any
+    attribute::Any
+    polygon::Any
+    equator_crossing_longitude::Any
+    equator_crossing_date::Any
+    updated_since::Any
+    revision_date::Any
+    created_at::Any
+    production_date::Any
+    cloud_cover::Any
+    platform::Any
+    instrument::Any
+    sensor::Any
+    project::Any
+    concept_id::Any
+    echo_granule_id::Any
+    echo_collection_id::Any
+    day_night_flag::Any
+    two_d_coordinate_system::Any
+    provider::Any
+    native_id::Any
+    short_name::Any
+    version::Any
+    entry_title::Any
+    entry_id::Any
+    temporal::Any
+    cycle::Any
+    passes::Any
+    sort_key::Any
 end
 
 
@@ -97,76 +97,76 @@ end
 As documented by https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html#collection-search-by-parameters.
 """
 Base.@kwdef struct CollectionRequest <: AbstractRequest
-    concept_id
-    doi
-    echo_collection_id
-    provider_short_name
-    entry_title
-    entry_id
-    archive_center
-    data_center
-    temporal
-    project
-    consortium
-    updated_since
-    created_at
-    has_granules_created_at
-    has_granules_revised_at
-    revision_date
-    processing_level_id
-    platform
-    instrument
-    sensor
-    spatial_keyword
-    science_keywords
-    two_d_coordinate_system_name
-    collection_data_type
-    granule_data_format
-    online_only
-    downloadable
-    browsable
-    keyword
-    provider
-    native_id
-    short_name
-    version
-    tag_key
-    variable_name
-    variable_native_id
-    variable_concept_id
-    variables
-    service_name
-    service_type
-    service_concept_id
-    tool_name
-    tool_type
-    tool_concept_id
-    polygon
-    bounding_box
-    point
-    line
-    circle
-    attribute
-    author
-    has_granules
-    has_granules_or_cwic
-    has_granules_or_opensearch
-    has_opendap_url
-    cloud_hosted
-    standard_product
-    sort_key
-    all_revisions
+    concept_id::Any
+    doi::Any
+    echo_collection_id::Any
+    provider_short_name::Any
+    entry_title::Any
+    entry_id::Any
+    archive_center::Any
+    data_center::Any
+    temporal::Any
+    project::Any
+    consortium::Any
+    updated_since::Any
+    created_at::Any
+    has_granules_created_at::Any
+    has_granules_revised_at::Any
+    revision_date::Any
+    processing_level_id::Any
+    platform::Any
+    instrument::Any
+    sensor::Any
+    spatial_keyword::Any
+    science_keywords::Any
+    two_d_coordinate_system_name::Any
+    collection_data_type::Any
+    granule_data_format::Any
+    online_only::Any
+    downloadable::Any
+    browsable::Any
+    keyword::Any
+    provider::Any
+    native_id::Any
+    short_name::Any
+    version::Any
+    tag_key::Any
+    variable_name::Any
+    variable_native_id::Any
+    variable_concept_id::Any
+    variables::Any
+    service_name::Any
+    service_type::Any
+    service_concept_id::Any
+    tool_name::Any
+    tool_type::Any
+    tool_concept_id::Any
+    polygon::Any
+    bounding_box::Any
+    point::Any
+    line::Any
+    circle::Any
+    attribute::Any
+    author::Any
+    has_granules::Any
+    has_granules_or_cwic::Any
+    has_granules_or_opensearch::Any
+    has_opendap_url::Any
+    cloud_hosted::Any
+    standard_product::Any
+    sort_key::Any
+    all_revisions::Any
 end
 
 struct QueryParams
-    page_size
-    page_num
-    offset
-    scroll
-    sort_key
-    pretty
-    token
-    echo_compatible
+    page_size::Any
+    page_num::Any
+    offset::Any
+    scroll::Any
+    sort_key::Any
+    pretty::Any
+    token::Any
+    echo_compatible::Any
 end
 
 # function search(g::GranuleRequest)::Vector{Granule}
@@ -208,13 +208,21 @@ end
 
 function parse_cmr_error(r)
     try
-        "Something went wrong:\n" * join(get(JSON3.read(r.body), "errors", [""]), "\n")
+        "Something went wrong: " * join(get(JSON3.read(r.body), "errors", [""]), "\n")
     catch
         "Something went wrong, but we don't know what."
     end
 end
 
-function request(url::AbstractString, query::Dict, T::Type; page_num=1, page_size=10, verbose=false, all=false)
+function request(
+    url::AbstractString,
+    query::Dict,
+    T::Type;
+    page_num=1,
+    page_size=10,
+    verbose=false,
+    all=false
+)
     q = Dict{String,String}(
         "page_num" => string(page_num),
         "page_size" => string(page_size),
@@ -227,9 +235,7 @@ function request(url::AbstractString, query::Dict, T::Type; page_num=1, page_siz
     v = map(x -> x.umm, body.items)
     vv = Vector{T}()
     append!(vv, v)
-    while (length(v) == page_size) &&
-              (page_num * page_size) < body.hits &&
-              all
+    while (length(v) == page_size) && (page_num * page_size) < body.hits && all
         q["page_num"] += 1
         r = HTTP.get(qurl, query=q, verbose=verbose, status_exception=false)
         HTTP.iserror(r) && error(parse_cmr_error(r))
