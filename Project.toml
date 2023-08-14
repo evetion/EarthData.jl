@@ -1,7 +1,16 @@
 name = "EarthData"
 uuid = "0ce7a1f8-0645-46c2-a0bb-6c09c29d93e9"
 authors = ["Maarten Pronk <git@evetion.nl> and contributors"]
-version = "1.0.0-DEV"
+version = "0.1.0"
+
+[deps]
+AWSS3 = "1c724243-ef5b-51ab-93f4-b0a88ac62a95"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Extents = "411431e0-e8b7-467b-b5e0-f676ba4f2910"
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
+TimeZones = "f269a46b-ccf7-5d73-abea-4c690281aa53"
 
 [compat]
 julia = "1"
