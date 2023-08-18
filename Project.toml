@@ -13,7 +13,12 @@ StructTypes = "856f2bd8-1eba-4b0a-8007-ebc267875bd4"
 TimeZones = "f269a46b-ccf7-5d73-abea-4c690281aa53"
 
 [compat]
-TimeZones = "1"
+AWSS3 = "0.11"
+Extents = "0.1"
+HTTP = "1.9"
+JSON3 = "1.13"
+StructTypes = "1.10"
+TimeZones = "1.11"
 julia = "1.6"
 
 [extras]
