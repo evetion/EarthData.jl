@@ -7,7 +7,7 @@ using JSON3
 using Extents
 using StructTypes
 
-include("aws.jl")
+include("utils.jl")
 include("granuletypes.jl")
 include("display.jl")
 

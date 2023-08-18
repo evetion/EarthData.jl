@@ -49,7 +49,13 @@ EarthData.UMM_G
 
 julia> gg[1].RelatedUrls[1].URL
 "https://e4ftl01.cr.usgs.gov//GEDI_L1_L2/GEDI/GEDI02_A.002/2019.04.18/GEDI02_A_2019108002012_O01959_01_T03909_02_003_01_V002.h5"
+
+# Search for s3 urls
+
+# Download a file from S3
+
 ```
+
 
 ## Next
 Implementing `collections` will be next on the list to implement.

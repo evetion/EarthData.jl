@@ -2,7 +2,6 @@ using EarthData
 using Test
 
 @testset "EarthData.jl" begin
-    # Write your tests here.
     gg = granules(short_name="GEDI02_A")
     @test length(gg) == 10
 
@@ -10,4 +9,8 @@ using Test
     @test g isa EarthData.Granule
 
     @test_throws "Something went wrong: The CMR does not allow quer" granules()
+end
+
+@testset "AWS" begin
+    # Test package extension
 end
