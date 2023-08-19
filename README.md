@@ -48,6 +48,12 @@ EarthData.UMM_G
 
 julia> gg[1].RelatedUrls[1].URL
 "https://e4ftl01.cr.usgs.gov//GEDI_L1_L2/GEDI/GEDI02_A.002/2019.04.18/GEDI02_A_2019108002012_O01959_01_T03909_02_003_01_V002.h5"
+
+# To download from this url, one requires an EarthData account
+# You can store your credentials on disk with `netrc!(<user>, <password>)`
+# which then can be used by `download` and `s3download`.
+# One could open the resulting file with SpaceLiDAR.jl
+fn = EarthData.download(gg[1].RelatedUrls[1].URL, "test.h5")
 ```
 
 ## Next

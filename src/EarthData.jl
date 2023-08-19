@@ -6,6 +6,7 @@ using Dates
 using JSON3
 using Extents
 using StructTypes
+import Downloads
 
 include("utils.jl")
 include("granuletypes.jl")

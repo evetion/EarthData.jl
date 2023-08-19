@@ -41,3 +41,7 @@ function _request(args...; kwargs...)
     downloader = custom_downloader()
     Downloads.request(args...; kwargs..., downloader=downloader)
 end
+
+function download(url, fn; kwargs...)
+    _download(url, fn; kwargs...)
+end

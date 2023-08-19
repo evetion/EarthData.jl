@@ -29,8 +29,8 @@ function set_env!(creds::AWSS3.AWSCredentials, env=ENV)
 end
 
 function create_aws_config(daac="nsidc", region="us-west-2")
-    expiry = DateTime(get(ENV, "AWS_SESSION_EXPIRES", typemin(DateTime)))
-    if expiry < Dates.now(UTC)
+    expiration = DateTime(get(ENV, "AWS_SESSION_EXPIRES", typemin(DateTime)))
+    if expiration < Dates.now(UTC)
         # If credentials are expired or unset, get new ones
         creds = get_s3_credentials(daac)
         set_env!(creds)
@@ -40,7 +40,7 @@ function create_aws_config(daac="nsidc", region="us-west-2")
             get(ENV, "AWS_ACCESS_KEY_ID", ""),
             get(ENV, "AWS_SECRET_ACCESS_KEY", ""),
             get(ENV, "AWS_SESSION_TOKEN", ""),
-            expiry=DateTime(get(ENV, "AWS_SESSION_EXPIRES", typemax(DateTime))),
+            expiration=DateTime(get(ENV, "AWS_SESSION_EXPIRES", typemin(DateTime))),
         )
     end
 
