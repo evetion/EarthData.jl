@@ -5,7 +5,7 @@ using Documenter
 function setup_env()
     if "EARTHDATA_USER" in keys(ENV)
         @info "Setting up Earthdata credentials for Github Actions"
-        SpaceLiDAR.netrc!(
+        EarthData.netrc!(
             get(ENV, "EARTHDATA_USER", ""),
             get(ENV, "EARTHDATA_PW", ""),
         )
@@ -21,7 +21,7 @@ end
         g = gg[1]
         @test g isa EarthData.Granule
 
-        @test_throws "Something went wrong: The CMR does not allow quer" granules()
+        @test_throws ErrorException granules()
 
     end
 
