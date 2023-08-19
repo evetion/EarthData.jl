@@ -11,6 +11,7 @@ import Downloads
 include("utils.jl")
 include("granuletypes.jl")
 include("display.jl")
+include("stub.jl")  # empty methods that are actually defined in extensions
 
 const world = Extent(X=(-180.0, 180.0), Y=(-90.0, 90.0))
 

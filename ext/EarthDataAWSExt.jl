@@ -4,8 +4,9 @@ using EarthData
 using AWSS3
 using JSON3
 using Dates
+using TimeZones
 
-function get_s3_credentials(daac="nsidc")
+function EarthData.get_s3_credentials(daac="nsidc")
     body = sprint() do output
         return EarthData._request(
             "https://data.$daac.earthdatacloud.nasa.gov/s3credentials";
@@ -28,11 +29,11 @@ function set_env!(creds::AWSS3.AWSCredentials, env=ENV)
     env["AWS_SESSION_EXPIRES"] = creds.expiry
 end
 
-function create_aws_config(daac="nsidc", region="us-west-2")
+function EarthData.create_aws_config(daac="nsidc", region="us-west-2")
     expiration = DateTime(get(ENV, "AWS_SESSION_EXPIRES", typemin(DateTime)))
     if expiration < Dates.now(UTC)
         # If credentials are expired or unset, get new ones
-        creds = get_s3_credentials(daac)
+        creds = EarthData.get_s3_credentials(daac)
         set_env!(creds)
     else
         # Otherwise, get them from the environment
@@ -47,7 +48,7 @@ function create_aws_config(daac="nsidc", region="us-west-2")
     AWSS3.global_aws_config(; creds, region)
 end
 
-function s3download(url, fn, config=create_aws_config())
+function EarthData.s3download(url, fn, config=EarthData.create_aws_config())
     bucket, path = split(last(split(url, "//")), "/"; limit=2)
     AWSS3.s3_get_file(config, bucket, path, fn)
 end
