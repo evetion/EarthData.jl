@@ -58,3 +58,6 @@ fn = EarthData.download(gg[1].RelatedUrls[1].URL, "test.h5")
 
 ## Next
 Implementing `collections` will be next on the list to implement.
+
+## Other Packages
+For access to EarthData with Python see [earthaccess](https://github.com/nsidc/earthaccess).
