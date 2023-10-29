@@ -20,6 +20,7 @@ EarthDataAWSExt = "AWSS3"
 
 [compat]
 AWSS3 = "0.11"
+Downloads = "1"
 Extents = "0.1"
 HTTP = "1.9"
 JSON3 = "1.13"
@@ -29,8 +30,8 @@ julia = "1.6"
 
 [extras]
 AWSS3 = "1c724243-ef5b-51ab-93f4-b0a88ac62a95"
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test", "AWSS3", "Documenter"]
