@@ -1,3 +1,5 @@
+import Aria2_jll
+
 """
     netrc!(username, password)
 
@@ -25,7 +27,11 @@ function custom_downloader()
     downloader = Downloads.Downloader()
     easy_hook =
         (easy, _) -> begin
-            Downloads.Curl.setopt(easy, Downloads.Curl.CURLOPT_NETRC, Downloads.Curl.CURL_NETRC_OPTIONAL)
+            Downloads.Curl.setopt(
+                easy,
+                Downloads.Curl.CURLOPT_NETRC,
+                Downloads.Curl.CURL_NETRC_OPTIONAL,
+            )
             Downloads.Curl.setopt(easy, Downloads.Curl.CURLOPT_COOKIEFILE, "")
         end
     downloader.easy_hook = easy_hook
@@ -42,6 +48,70 @@ function _request(args...; kwargs...)
     Downloads.request(args...; kwargs..., downloader=downloader)
 end
 
-function download(url, fn; kwargs...)
-    _download(url, fn; kwargs...)
+function download(url::AbstractString, fn::AbstractString; kwargs...)
+    if startswith(url, "s3:")
+        s3download(url, fn)
+    else
+        _download(url, fn; kwargs...)
+    end
+end
+
+function write_urls(io::IO, urls::AbstractVector{<:AbstractString})
+    for url in urls
+        println(io, url)
+    end
+    return io
+end
+
+function write_urls(fn::AbstractString, urls::AbstractVector{<:AbstractString})
+    open(fn, "w") do io
+        write_urls(io, urls)
+    end
+    return abspath(fn)
+end
+
+function write_urls(urls::AbstractVector{<:AbstractString})
+    fn, io = mktemp()
+    try
+        write_urls(io, urls)
+    finally
+        close(io)
+    end
+    return fn
+end
+
+function url_filename(url::AbstractString)
+    name = basename(first(split(url, "?"; limit=2)))
+    isempty(name) && throw(ArgumentError("Cannot determine a filename from URL: $url"))
+    return name
+end
+
+function download_paths(urls::AbstractVector{<:AbstractString}, folder::AbstractString)
+    [joinpath(folder, url_filename(url)) for url in urls]
+end
+
+function download(
+    urls::AbstractVector{<:AbstractString},
+    folder::AbstractString=".";
+    aria2::Bool=true,
+    runner=run,
+)
+    folder = normpath(abspath(folder))
+    mkpath(folder)
+    paths = download_paths(urls, folder)
+
+    if !aria2 || any(url -> startswith(url, "s3:"), urls)
+        for (url, path) in zip(urls, paths)
+            isfile(path) || download(url, path)
+        end
+    else
+        fn = write_urls(urls)
+        try
+            runner(`$(Aria2_jll.aria2c()) -i $fn -c -d $folder`)
+        finally
+            rm(fn; force=true)
+        end
+    end
+
+    return paths
 end

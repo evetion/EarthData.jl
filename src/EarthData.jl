@@ -9,21 +9,25 @@ using StructTypes
 import Downloads
 
 include("utils.jl")
-include("granuletypes.jl")
+abstract type AbstractJSON end
+include("umm/granules.jl")
+include("umm/collections.jl")
 include("display.jl")
+include("show.jl")
 include("stub.jl")  # empty methods that are actually defined in extensions
 
 const world = Extent(X=(-180.0, 180.0), Y=(-90.0, 90.0))
 
-const version = "v1.6.4"
+const granule_version = "v1.6.6"
+const collection_version = "v1.17.0"
+const version = granule_version
 
-const umm_json_version = replace(version, "." => "_")
-const granule_url = "https://cmr.earthdata.nasa.gov/search/granules.umm_json_$umm_json_version"
-const collection_url = "https://cmr.earthdata.nasa.gov/search/collections.umm_json_$umm_json_version"
+const granule_umm_json_version = replace(granule_version, "." => "_")
+const collection_umm_json_version = replace(collection_version, "." => "_")
+const granule_url = "https://cmr.earthdata.nasa.gov/search/granules.umm_json_$granule_umm_json_version"
+const collection_url = "https://cmr.earthdata.nasa.gov/search/collections.umm_json_$collection_umm_json_version"
 
 abstract type AbstractRequest end
-
-const Granule = UMM_G
 
 struct Meta
     var"concept-type"::String
@@ -37,17 +41,29 @@ end
 
 Base.@kwdef struct MetaGranule
     meta::Meta
-    umm::Granule
+    umm::Granules.UMM_G
 end
-Base.@kwdef struct Granules
+Base.@kwdef struct MetaCollection
+    meta::Meta
+    umm::Collections.UMM_C
+end
+Base.@kwdef struct GranuleSearchResponse
     hits::Int
     took::Int
     items::Vector{MetaGranule} = MetaGranule[]
 end
+Base.@kwdef struct CollectionSearchResponse
+    hits::Int
+    took::Int
+    items::Vector{MetaCollection} = MetaCollection[]
+end
 
-StructTypes.StructType(::Type{Granules}) = StructTypes.Struct()
+StructTypes.StructType(::Type{GranuleSearchResponse}) = StructTypes.Struct()
 StructTypes.StructType(::Type{MetaGranule}) = StructTypes.Struct()
-responsetype(::Type{Granule}) = Granules
+StructTypes.StructType(::Type{CollectionSearchResponse}) = StructTypes.Struct()
+StructTypes.StructType(::Type{MetaCollection}) = StructTypes.Struct()
+responsetype(::Type{Granules.UMM_G}) = GranuleSearchResponse
+responsetype(::Type{Collections.UMM_C}) = CollectionSearchResponse
 
 """
     GranuleRequest(; keyword=value, ...)
@@ -180,32 +196,74 @@ end
 # end
 
 """
-    granules(; keyword=value, ...) -> Vector{Granule}
+    granules(; keyword=value, ...) -> Vector{Granules.UMM_G}
 
 Search for granules using NASA EarthDataSearch. Possible keywords are
 `$(fieldnames(GranuleRequest))` or `$(fieldnames(QueryParams))`.
 
 ```jldoctest
-granules(short_name="GEDI02_A")
+g = first(granules(short_name="GEDI02_A"))
+startswith(sprint(show, g), "GEDI02_A: ")
 # output
-10-element Vector{EarthData.UMM_G}:
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
+true
 ```
 """
-function granules(; kwargs...)
+function granules(;
+    page_num=1,
+    page_size=10,
+    verbose=false,
+    all=false,
+    method=:POST,
+    requester=HTTP.request,
+    kwargs...,
+)
     d = Dict(kwargs)
     uk = setdiff(keys(d), fieldnames(GranuleRequest), fieldnames(QueryParams))
-    isempty(uk) || throw(ArgumentError("Unknown keyword argument(s): " * join(uk, ", ")))
-    request(granule_url, Dict(zip(string.(keys(d)), values(d))), Granule)
+    isempty(uk) ||
+        throw(ArgumentError("Unknown keyword argument(s): " * join(string.(uk), ", ")))
+    request(
+        granule_url,
+        Dict(zip(string.(keys(d)), values(d))),
+        Granules.UMM_G;
+        page_num,
+        page_size,
+        verbose,
+        all,
+        method,
+        requester,
+    )
+end
+
+"""
+    collections(; keyword=value, ...) -> Vector{Collections.UMM_C}
+
+Search for collections using NASA EarthData Search. Possible keywords are
+`$(fieldnames(CollectionRequest))` or `$(fieldnames(QueryParams))`.
+"""
+function collections(;
+    page_num=1,
+    page_size=10,
+    verbose=false,
+    all=false,
+    method=:POST,
+    requester=HTTP.request,
+    kwargs...,
+)
+    d = Dict(kwargs)
+    uk = setdiff(keys(d), fieldnames(CollectionRequest), fieldnames(QueryParams))
+    isempty(uk) ||
+        throw(ArgumentError("Unknown keyword argument(s): " * join(string.(uk), ", ")))
+    request(
+        collection_url,
+        Dict(zip(string.(keys(d)), values(d))),
+        Collections.UMM_C;
+        page_num,
+        page_size,
+        verbose,
+        all,
+        method,
+        requester,
+    )
 end
 
 function parse_cmr_error(r)
@@ -216,6 +274,48 @@ function parse_cmr_error(r)
     end
 end
 
+function cmr_headers(search_after=nothing)
+    headers = ["Client-Id" => "EarthData.jl"]
+    isnothing(search_after) || push!(headers, "CMR-Search-After" => search_after)
+    return headers
+end
+
+function cmr_query(query::Dict; page_num, page_size)
+    q = Dict{String,Any}("page_num" => page_num, "page_size" => page_size)
+    for (k, v) in query
+        isnothing(v) || (q[string(k)] = v)
+    end
+    return q
+end
+
+function header_value(headers, name::AbstractString)
+    lname = lowercase(name)
+    for (k, v) in headers
+        lowercase(String(k)) == lname && return String(v)
+    end
+    return nothing
+end
+
+function cmr_http_request(requester, method, url, headers, query; verbose)
+    m = uppercase(String(method))
+    if m == "GET"
+        return requester(m, url, headers; query, verbose, status_exception=false)
+    elseif m == "POST"
+        post_headers = copy(headers)
+        push!(post_headers, "Content-Type" => "application/x-www-form-urlencoded")
+        return requester(
+            m,
+            url,
+            post_headers;
+            body=HTTP.URIs.escapeuri(query),
+            verbose,
+            status_exception=false,
+        )
+    else
+        throw(ArgumentError("Unsupported HTTP method for CMR search: $method"))
+    end
+end
+
 function request(
     url::AbstractString,
     query::Dict,
@@ -223,30 +323,85 @@ function request(
     page_num=1,
     page_size=10,
     verbose=false,
-    all=false
+    all=false,
+    method=:POST,
+    requester=HTTP.request,
 )
-    q = Dict{String,String}(
-        "page_num" => string(page_num),
-        "page_size" => string(page_size),
-    )
-    q = merge!(q, query)
-    headers = ["Client-Id" => "EarthData.jl"]
-    r = HTTP.get(url, headers, query=q, verbose=verbose, status_exception=false)
-    HTTP.iserror(r) && error(parse_cmr_error(r))
-    body = JSON3.read(r.body, responsetype(T))
-    v = map(x -> x.umm, body.items)
+    q = cmr_query(query; page_num, page_size)
     vv = Vector{T}()
-    append!(vv, v)
-    while (length(v) == page_size) && (page_num * page_size) < body.hits && all
-        q["page_num"] += 1
-        r = HTTP.get(qurl, query=q, verbose=verbose, status_exception=false)
+    search_after = nothing
+    seen_search_after = Set{String}()
+
+    while true
+        r = cmr_http_request(requester, method, url, cmr_headers(search_after), q; verbose)
         HTTP.iserror(r) && error(parse_cmr_error(r))
         body = JSON3.read(r.body, responsetype(T))
         v = map(x -> x.umm, body.items)
         append!(vv, v)
+        all || break
+
+        next_search_after = header_value(r.headers, "CMR-Search-After")
+        isnothing(next_search_after) && break
+        next_search_after in seen_search_after && break
+        push!(seen_search_after, next_search_after)
+        search_after = next_search_after
     end
     vv
 end
 
-export granules
+function scheme_prefix(scheme)
+    s = string(scheme)
+    endswith(s, ":") ? s : s * ":"
+end
+
+function urls(item::AbstractJSON; scheme=nothing)
+    related_urls = getproperty(item, :RelatedUrls)
+    isnothing(related_urls) && return String[]
+    result = [u.URL for u in related_urls]
+    isnothing(scheme) && return result
+    filter(startswith(scheme_prefix(scheme)), result)
+end
+
+function urls(items::AbstractVector{<:AbstractJSON}; scheme=nothing)
+    result = String[]
+    for item in items
+        append!(result, urls(item; scheme))
+    end
+    return result
+end
+
+https_urls(item) = urls(item; scheme=:https)
+s3_urls(item) = urls(item; scheme=:s3)
+
+function download_url(item; scheme=:https)
+    candidates = urls(item; scheme)
+    isempty(candidates) ? nothing : first(candidates)
+end
+
+function write_urls(io::IO, items::AbstractVector{<:AbstractJSON}; scheme=:https)
+    write_urls(io, urls(items; scheme))
+end
+
+function write_urls(
+    fn::AbstractString,
+    items::AbstractVector{<:AbstractJSON};
+    scheme=:https,
+)
+    write_urls(fn, urls(items; scheme))
+end
+
+function write_urls(items::AbstractVector{<:AbstractJSON}; scheme=:https)
+    write_urls(urls(items; scheme))
+end
+
+function download(
+    items::AbstractVector{<:AbstractJSON},
+    folder::AbstractString=".";
+    scheme=:https,
+    kwargs...,
+)
+    download(urls(items; scheme), folder; kwargs...)
+end
+
+export granules, collections, urls, https_urls, s3_urls, download_url, write_urls, download
 end

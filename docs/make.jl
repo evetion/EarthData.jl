@@ -12,9 +12,16 @@ makedocs(;
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://evetion.github.io/EarthData.jl",
         edit_link = "main",
+        repolink = "https://github.com/evetion/EarthData.jl",
         assets = String[],
     ),
-    pages = ["Home" => "index.md"],
+    pages = [
+        "Home" => "index.md",
+        "Search" => "search.md",
+        "Downloads" => "downloads.md",
+        "Reference" => "reference.md",
+    ],
+    checkdocs = :all,
 )
 
 deploydocs(; repo = "github.com/evetion/EarthData.jl", devbranch = "main")

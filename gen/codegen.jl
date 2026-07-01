@@ -4,7 +4,42 @@
 using JSON3
 using Downloads: download
 using JuliaFormatter: format
-const version = "v1.6.4"  # make sure this aligns with EarthData itself
+# Check https://wiki.earthdata.nasa.gov/spaces/CMR/pages/49448405/UMM+Documents
+
+"""
+Describe one UMM schema to fetch and the Julia module to generate from it.
+
+`optional_fields` records known CMR response fields that violate the published
+schema but still need to parse.
+"""
+Base.@kwdef struct SchemaSpec
+    family::String
+    suffix::String
+    version::String
+    module_name::String
+    output::String
+    optional_fields::Set{Tuple{String,String}} = Set{Tuple{String,String}}()
+end
+
+const schemas = [
+    SchemaSpec(
+        family="granule",
+        suffix="g",
+        version="v1.6.6",
+        module_name="Granules",
+        output=joinpath("src", "umm", "granules.jl"),
+    ),
+    SchemaSpec(
+        family="collection",
+        suffix="c",
+        version="v1.17.0",
+        module_name="Collections",
+        output=joinpath("src", "umm", "collections.jl"),
+        # Some CMR collection records contain legacy MetadataDates with a Type
+        # but no Date even though the common schema marks Date as required.
+        optional_fields=Set([("DateType", "Date")]),
+    ),
+]
 
 mapping = Dict(
     "string" => "String",
@@ -16,13 +51,12 @@ mapping = Dict(
     "null" => "Nothing",
 )
 
-struct_mapping = Dict{String,String}()
-
+"""Convert schema titles into the simple Julia identifiers used here."""
 function maketitle(x)
     replace(x, " " => "_", "-" => "_")
 end
 
-"""Adapted from `copy` in JSON3, but with String keys instead of Symbols."""
+"""Normalize JSON3 containers to Julia containers with String keys."""
 function todict(obj::JSON3.Object)
     dict = Dict{String,Any}()
     for (k, v) in obj
@@ -80,13 +114,138 @@ end
 deref!(obj, x) = nothing
 
 """
-Derive Julia type from JSON Schema
+Return external schema files referenced by `\$ref` values.
+
+Internal references such as `#/definitions/Foo` stay in the current schema.
 """
-function parse_type(d::Dict, required = false)::Tuple{String,Vector{String}}
+function collect_external_refs(obj)::Set{String}
+    refs = Set{String}()
+    collect_external_refs!(refs, obj)
+    return refs
+end
+
+function collect_external_refs!(refs::Set{String}, obj::Dict)
+    if haskey(obj, "\$ref")
+        ref = obj["\$ref"]
+        if ref isa AbstractString
+            file = first(split(ref, "#"; limit=2))
+            isempty(file) || push!(refs, file)
+        end
+    end
+    foreach(v -> collect_external_refs!(refs, v), values(obj))
+    return refs
+end
+
+function collect_external_refs!(refs::Set{String}, obj::Vector)
+    foreach(v -> collect_external_refs!(refs, v), obj)
+    return refs
+end
+
+collect_external_refs!(refs::Set{String}, obj) = refs
+
+"""
+Return true when a schema node should be emitted as a Julia struct.
+
+Some UMM definitions use `oneOf` with object variants; this generator treats
+those variants as one struct with merged fields.
+"""
+function is_object_schema(d::Dict)
+    get(d, "type", nothing) == "object" ||
+        (haskey(d, "oneOf") && all(x -> get(x, "type", nothing) == "object", d["oneOf"]))
+end
+
+"""Return object properties, merging object-only `oneOf` variants when needed."""
+function schema_properties(d::Dict)
+    if haskey(d, "oneOf") && !haskey(d, "properties")
+        return reduce(merge, [get(x, "properties", Dict()) for x in d["oneOf"]])
+    else
+        return get(d, "properties", Dict())
+    end
+end
+
+"""
+Return whether `field` should be generated as non-nullable.
+
+This combines the schema's `required` list with per-schema exceptions for
+legacy CMR records that omit fields marked as required by the schema.
+"""
+function is_required_field(
+    d::Dict,
+    title::AbstractString,
+    field::AbstractString,
+    spec::SchemaSpec,
+)
+    field in get(d, "required", String[]) && !((title, field) in spec.optional_fields)
+end
+
+"""Return the directory prefix of a schema URL."""
+function schema_directory(url::AbstractString)
+    replace(url, r"[^/]+$" => "")
+end
+
+"""Resolve a schema reference against the current schema URL."""
+function schema_ref_url(base_url::AbstractString, ref::AbstractString)
+    startswith(ref, "http://") || startswith(ref, "https://") ? ref : base_url * ref
+end
+
+"""
+Fetch sibling schemas and merge their definitions into `schema`.
+
+After this pass, `deref!` can resolve external and internal references from
+one local definitions table.
+"""
+function merge_external_definitions!(schema::Dict, url::AbstractString)
+    base_url = schema_directory(url)
+    definitions = get!(schema, "definitions", Dict{String,Any}())
+    refs = collect(collect_external_refs(schema))
+    seen = Set{String}()
+
+    while !isempty(refs)
+        ref = popfirst!(refs)
+        ref in seen && continue
+        push!(seen, ref)
+
+        # External schemas can themselves reference more sibling schemas.
+        external_url = schema_ref_url(base_url, ref)
+        external_schema = todict(JSON3.read(read(download(external_url), String)))
+        for (k, v) in get(external_schema, "definitions", Dict{String,Any}())
+            haskey(definitions, k) || (definitions[k] = v)
+        end
+
+        append!(refs, setdiff(collect(collect_external_refs(external_schema)), seen))
+    end
+
+    return schema
+end
+
+"""
+    parse_type(d, struct_mapping, required=false) -> (type, deps)
+
+Translate one JSON Schema node into Julia type source.
+
+The returned dependency list feeds `_write`, which emits generated structs only
+after the structs they reference.
+"""
+function parse_type(
+    d::Dict,
+    struct_mapping::Dict{String,String},
+    required=false,
+)::Tuple{String,Vector{String}}
     t = get(d, "type", nothing)
     if isnothing(t)
         if haskey(d, "anyOf")
-            TT = map(x -> parse_type(x, true)[1], d["anyOf"])
+            TT = map(x -> parse_type(x, struct_mapping, true)[1], d["anyOf"])
+            T = join(TT, ",")
+            if required
+                return "Union{$T}", TT
+            else
+                return "Union{Nothing, $T}", TT
+            end
+        elseif haskey(d, "typename")
+            T = get(struct_mapping, d["typename"], maketitle(d["typename"]))
+            return required ? (T, [T]) : ("Union{Nothing, $T}", [T])
+        elseif haskey(d, "oneOf")
+            TT = unique(map(x -> parse_type(x, struct_mapping, true)[1], d["oneOf"]))
             T = join(TT, ",")
             if required
                 return "Union{$T}", TT
@@ -100,7 +259,7 @@ function parse_type(d::Dict, required = false)::Tuple{String,Vector{String}}
             return required ? (T, [T]) : ("Union{Nothing, $T}", [T])
         else
             @warn "Unknown type for $(keys(d))"
-            return "Any"
+            return "Any", ["Any"]
         end
     else
         if haskey(d, "typename") && t == "object"
@@ -110,7 +269,7 @@ function parse_type(d::Dict, required = false)::Tuple{String,Vector{String}}
             T = get(mapping, t, "Any")
         end
         if T == "Vector"
-            T, TT = parse_type(d["items"], true)
+            T, TT = parse_type(d["items"], struct_mapping, true)
             T = "Vector{$T}"
         else
             TT = [T]
@@ -120,25 +279,37 @@ function parse_type(d::Dict, required = false)::Tuple{String,Vector{String}}
 end
 
 """
-Print JSON object into a Julia Struct
+    parse_object(io, d, struct_mapping, spec)
+
+Emit the top-level schema object and all nested object definitions.
+
+Definitions are buffered first because schema order does not guarantee Julia
+type dependency order.
 """
-function parse_object(io, d::Dict)
-    println(io, "abstract type AbstractJSON end\n")
+function parse_object(io, d::Dict, struct_mapping::Dict{String,String}, spec::SchemaSpec)
     d["type"] == "object" || return
     structs = Dict()
+
+    # Build buffers for every named definition before writing anything.
+    # `_write` later orders those buffers using the recorded field dependencies.
     for (k, v) in get(d, "definitions", Dict())
-        parse_definition(structs, v, k)
+        parse_definition(structs, v, k, struct_mapping, spec)
     end
+
+    # Treat the root schema like another definition so it participates in the
+    # same dependency ordering as all nested types.
     nio = IOBuffer()
     fieldtypes = Set{String}()
     structs[maketitle(d["title"])] = (nio, fieldtypes)
     haskey(d, "description") && println(nio, "\"$(d["description"])\"")
     println(nio, "struct $(maketitle(d["title"])) <: AbstractJSON")
-    struct_mapping[d["title"]] = d["title"]
+    struct_mapping[d["title"]] = maketitle(d["title"])
     for (k, v) in d["properties"]
+        # JSON field names with hyphens need quoted identifiers in Julia.
         vk = occursin("-", k) ? "var\"$k\"" : k
         haskey(v, "description") && println(nio, "\t\"$(v["description"])\"")
-        T, TT = parse_type(v, k in get(d, "required", String[]))
+        T, TT = parse_type(v, struct_mapping, is_required_field(d, d["title"], k, spec))
+        # Track referenced struct names so `_write` can emit dependencies first.
         push!(fieldtypes, TT...)
         println(nio, "\t$(vk)::$T")
     end
@@ -150,9 +321,9 @@ function parse_object(io, d::Dict)
     _write(io, structs)
 end
 
+"""Write buffered struct definitions in dependency order."""
 function _write(io, structs)
 
-    # Reorder structs so that dependencies are satisfied
     kk = collect(keys(structs))
     nio = IOBuffer()
     i = 0
@@ -171,28 +342,31 @@ function _write(io, structs)
 end
 
 """
-Print JSON definition into a Julia Struct
+    parse_definition(structs, d, title, struct_mapping, spec)
+
+Buffer one schema definition as a generated struct or as a type mapping.
 """
-function parse_definition(structs, d::Dict, title)
+function parse_definition(
+    structs,
+    d::Dict,
+    title,
+    struct_mapping::Dict{String,String},
+    spec::SchemaSpec,
+)
     T = get(d, "type", nothing)
-    if T == "object"
+    if is_object_schema(d)
         nio = IOBuffer()
         fieldtypes = Set{String}()
         structs[maketitle(title)] = (nio, fieldtypes)
         haskey(d, "description") && println(nio, "\"$(d["description"])\"")
         println(nio, "struct $(maketitle(title)) <: AbstractJSON")
-        struct_mapping[title] = title
-
-        if haskey(d, "oneOf") && !haskey(d, "properties")
-            properties = reduce(merge, [get(x, "properties", Dict()) for x in d["oneOf"]])
-        else
-            properties = get(d, "properties", Dict())
-        end
+        struct_mapping[title] = maketitle(title)
+        properties = schema_properties(d)
 
         for (k, v) in properties
             vk = occursin("-", k) ? "var\"$k\"" : k
             haskey(v, "description") && println(nio, "\t\"$(v["description"])\"")
-            T, TT = parse_type(v, k in get(d, "required", String[]))
+            T, TT = parse_type(v, struct_mapping, is_required_field(d, title, k, spec))
             push!(fieldtypes, TT...)
             println(nio, "\t$(vk)::$T")
         end
@@ -203,26 +377,48 @@ function parse_definition(structs, d::Dict, title)
             "StructTypes.StructType(::Type{$(maketitle(title))}) = StructTypes.Struct()\n\n",
         )
     elseif isnothing(T) && haskey(d, "anyOf")
-        struct_mapping[title] = "Union{$(join(map(x -> parse_type(x, true)[1], d["anyOf"]), ","))}"
+        # Scalar union definitions do not need their own struct.
+        struct_mapping[title] = "Union{$(join(map(x -> parse_type(x, struct_mapping, true)[1], d["anyOf"]), ","))}"
     elseif !isnothing(T)
-        struct_mapping[title] = parse_type(d, true)[1]
+        struct_mapping[title] = parse_type(d, struct_mapping, true)[1]
     else
         @warn "Unknown type $T for $title"
     end
 end
 
 
-fn =
-    download("https://cdn.earthdata.nasa.gov/umm/granule/$(version)/umm-g-json-schema.json")
-schema = JSON3.read(fn)
+"""Return the canonical CDN URL for a UMM schema spec."""
+function schema_url(spec::SchemaSpec)
+    "https://cdn.earthdata.nasa.gov/umm/$(spec.family)/$(spec.version)/umm-$(spec.suffix)-json-schema.json"
+end
 
-# Replace all Symbols with Strings
-sch = todict(schema)
-# Replace all references with their definitions
-deref!(sch)
-# Write definitions to file
-open("src/granuletypes.jl", "w") do io
-    parse_object(io, sch)
+"""Generate one Julia UMM module from a remote JSON Schema."""
+function generate_schema(spec::SchemaSpec)
+    url = schema_url(spec)
+    fn = download(url)
+    schema = JSON3.read(read(fn, String))
+
+    # Replace all Symbols with Strings
+    sch = todict(schema)
+    # Include definitions from sibling schemas referenced by the main schema
+    merge_external_definitions!(sch, url)
+    # Replace all references with their definitions
+    deref!(sch)
+
+    mkpath(dirname(spec.output))
+    open(spec.output, "w") do io
+        println(io, "# This file is generated from gen/codegen.jl. Do not edit directly.")
+        println(io, "module $(spec.module_name)")
+        println(io, "using StructTypes")
+        println(io, "using ..EarthData: AbstractJSON")
+        println(io)
+        parse_object(io, sch, Dict{String,String}(), spec)
+        println(io, "end")
+    end
+end
+
+for spec in schemas
+    generate_schema(spec)
 end
 
 # run JuliaFormatter on the whole package

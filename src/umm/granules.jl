@@ -1,4 +1,7 @@
-abstract type AbstractJSON end
+# This file is generated from gen/codegen.jl. Do not edit directly.
+module Granules
+using StructTypes
+using ..EarthData: AbstractJSON
 
 "This element stores a track pass and its tile information. It will allow a user to search by pass number and their tiles that are contained with in a cycle number.  While trying to keep this generic for all to use, this comes from a SWOT requirement where a pass represents a 1/2 orbit. This element will then hold a list of 1/2 orbits and their tiles that together represent the granules spatial extent."
 struct TrackPassTileType <: AbstractJSON
@@ -155,7 +158,7 @@ StructTypes.StructType(::Type{OrbitCalculatedSpatialDomainType}) = StructTypes.S
 "This element stores track information of the granule. Track information is used to allow a user to search for granules whose spatial extent is based on an orbital cycle, pass, and tile mapping. Though it is derived from the SWOT mission requirements, it is intended that this element type be generic enough so that other missions can make use of it. While track information is a type of spatial domain, it is expected that the metadata provider will provide geometry information that matches the spatial extent of the track information."
 struct TrackType <: AbstractJSON
     "A pass number identifies a subset of a granule's spatial extent. This element holds a list of pass numbers and their tiles that exist in the granule. It will allow a user to search by pass number and its tiles that are contained with in a cycle number.  While trying to keep this generic for all to use, this comes from a SWOT requirement where a pass represents a 1/2 orbit. This element will then hold a list of 1/2 orbits and their tiles that together represent the granule's spatial extent."
-    Passes::Vector{TrackPassTileType}
+    Passes::Union{Nothing,Vector{TrackPassTileType}}
     "An integer that represents a specific set of orbital spatial extents defined by passes and tiles. Though intended to be generic, this comes from a SWOT mission requirement where each cycle represents a set of 1/2 orbits. Each 1/2 orbit is called a 'pass'. During science mode, a cycle represents 21 days of 14 full orbits or 588 passes."
     Cycle::Int64
 end
@@ -508,3 +511,6 @@ struct UMM_G <: AbstractJSON
     MeasuredParameters::Union{Nothing,Vector{MeasuredParameterType}}
 end
 StructTypes.StructType(::Type{UMM_G}) = StructTypes.Struct()
+
+
+end

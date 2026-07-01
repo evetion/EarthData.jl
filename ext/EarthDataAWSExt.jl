@@ -10,7 +10,7 @@ function EarthData.get_s3_credentials(daac="nsidc")
     body = sprint() do output
         return EarthData._request(
             "https://data.$daac.earthdatacloud.nasa.gov/s3credentials";
-            output=output
+            output=output,
         )
     end
     body = JSON3.read(body)
