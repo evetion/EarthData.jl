@@ -19,32 +19,15 @@ julia> using EarthData
 
 # Search for all GEDI L2A granules
 julia> gg = granules(short_name="GEDI02_A")
-1000-element Vector{EarthData.UMM_G}:
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
- EarthData.UMM_G
+1000-element Vector{EarthData.Granules.UMM_G}:
+ GEDI02_A: GEDI02_A_2019108002012_O01959_01_T03909_02_003_01_V002
+ GEDI02_A: GEDI02_A_2019108002012_O01959_02_T03909_02_003_01_V002
+ GEDI02_A: GEDI02_A_2019108002012_O01959_03_T03909_02_003_01_V002
+ ...
 
-# A single granule, with the non-empty fields shown by default
-julia> g[1]
-EarthData.UMM_G
-        TemporalExtent
-        CollectionReference
-        RelatedUrls
-        GranuleUR
-        Platforms
-        DataGranule
-        MetadataSpecification
-        PGEVersionClass
-        Projects
-        AdditionalAttributes
-        ProviderDates
-        SpatialExtent
-        OrbitCalculatedSpatialDomains
-        MeasuredParameters
+# A single granule shows its collection short name and granule id
+julia> gg[1]
+GEDI02_A: GEDI02_A_2019108002012_O01959_01_T03909_02_003_01_V002
 
 julia> gg[1].RelatedUrls[1].URL
 "https://e4ftl01.cr.usgs.gov//GEDI_L1_L2/GEDI/GEDI02_A.002/2019.04.18/GEDI02_A_2019108002012_O01959_01_T03909_02_003_01_V002.h5"

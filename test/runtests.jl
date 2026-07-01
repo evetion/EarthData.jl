@@ -2,13 +2,14 @@ using EarthData
 using Test
 using Documenter
 
+include("schema_modules.jl")
+include("show.jl")
+include("search.jl")
+
 function setup_env()
     if "EARTHDATA_USER" in keys(ENV)
         @info "Setting up Earthdata credentials for Github Actions"
-        EarthData.netrc!(
-            get(ENV, "EARTHDATA_USER", ""),
-            get(ENV, "EARTHDATA_PW", ""),
-        )
+        EarthData.netrc!(get(ENV, "EARTHDATA_USER", ""), get(ENV, "EARTHDATA_PW", ""))
     end
 end
 
@@ -19,7 +20,7 @@ end
         @test length(gg) == 10
 
         g = gg[1]
-        @test g isa EarthData.Granule
+        @test g isa EarthData.Granules.UMM_G
 
         @test_throws ErrorException granules()
 
@@ -47,12 +48,7 @@ end
     end
 
     @testset "doctests" begin
-        DocMeta.setdocmeta!(
-            EarthData,
-            :DocTestSetup,
-            :(using EarthData);
-            recursive=true
-        )
+        DocMeta.setdocmeta!(EarthData, :DocTestSetup, :(using EarthData); recursive=true)
         doctest(EarthData)
     end
 
