@@ -1,0 +1,91 @@
+```@meta
+CurrentModule = EarthData
+DocTestSetup = quote
+    using EarthData
+end
+```
+
+# Downloads and URLs
+
+Search results usually contain several related URLs. EarthData.jl provides
+helpers for extracting HTTPS and S3 URLs from UMM records and for downloading
+individual files or batches of files.
+
+## URL helpers
+
+Use `urls` to collect every related URL, or filter by scheme with `https_urls`,
+`s3_urls`, or `download_url`:
+
+```jldoctest url_helpers
+julia> struct ExampleItem <: EarthData.AbstractJSON
+           RelatedUrls::Vector{NamedTuple{(:URL,), Tuple{String}}}
+       end
+
+julia> item = ExampleItem([(URL = "https://example.test/G1.h5",), (URL = "s3://example-bucket/G1.h5",)]);
+
+julia> https_urls(item)
+1-element Vector{String}:
+ "https://example.test/G1.h5"
+
+julia> s3_urls(item)
+1-element Vector{String}:
+ "s3://example-bucket/G1.h5"
+
+julia> download_url(item)
+"https://example.test/G1.h5"
+```
+
+The same helpers also accept vectors of UMM records:
+
+```julia
+gg = granules(short_name="GEDI02_A")
+https_urls(gg)
+s3_urls(gg)
+```
+
+## Earthdata credentials
+
+NASA Earthdata downloads require credentials. Store them in your `.netrc` file
+with `netrc!`:
+
+```julia
+EarthData.netrc!("earthdata_username", "earthdata_password")
+```
+
+The file is plaintext, so use the same care you would use for any credential
+file.
+
+## Downloading files
+
+Download one URL to a path:
+
+```julia
+gg = granules(short_name="GEDI02_A")
+download(download_url(first(gg)), "GEDI02_A_example.h5")
+```
+
+Download many HTTPS URLs into a folder. EarthData.jl uses `aria2c` by default for
+batch HTTPS downloads:
+
+```julia
+download(gg, "data")
+```
+
+To write a URL list for another tool:
+
+```julia
+write_urls("urls.txt", gg)
+```
+
+## S3 downloads
+
+S3 support is provided by the optional `AWSS3` extension. After loading `AWSS3`,
+EarthData.jl can request temporary Earthdata Cloud S3 credentials and download
+S3 URLs:
+
+```julia
+using AWSS3
+
+config = EarthData.create_aws_config("nsidc", "us-west-2")
+EarthData.s3download("s3://bucket/path/file.h5", "file.h5", config)
+```

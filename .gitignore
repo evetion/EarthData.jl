@@ -5,3 +5,7 @@
 /docs/Manifest.toml
 /docs/build/
 node_modules
+*.h5
+*.aria2
+*.json
+*.png
