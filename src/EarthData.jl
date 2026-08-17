@@ -281,7 +281,10 @@ function cmr_headers(search_after=nothing)
 end
 
 function cmr_query(query::Dict; page_num, page_size)
-    q = Dict{String,Any}("page_num" => page_num, "page_size" => page_size)
+    q = Dict{String,Any}("page_size" => page_size)
+    # CMR rejects `page_num` once a `CMR-Search-After` header is in play, so the caller
+    # passes `page_num=nothing` for every page after the first.
+    isnothing(page_num) || (q["page_num"] = page_num)
     for (k, v) in query
         isnothing(v) || (q[string(k)] = v)
     end
@@ -345,6 +348,10 @@ function request(
         next_search_after in seen_search_after && break
         push!(seen_search_after, next_search_after)
         search_after = next_search_after
+        # `page_num` and `CMR-Search-After` are mutually exclusive: sending both makes CMR
+        # answer HTTP 400 "page_num is not allowed with search-after", so the first page's
+        # `page_num` must be dropped before the second request goes out.
+        q = cmr_query(query; page_num=nothing, page_size)
     end
     vv
 end
