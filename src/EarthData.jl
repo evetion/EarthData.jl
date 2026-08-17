@@ -80,6 +80,10 @@ Base.@kwdef struct GranuleRequest <: AbstractRequest
     browsable::Any
     attribute::Any
     polygon::Any
+    bounding_box::Any
+    point::Any
+    line::Any
+    circle::Any
     equator_crossing_longitude::Any
     equator_crossing_date::Any
     updated_since::Any

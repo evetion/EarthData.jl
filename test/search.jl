@@ -138,6 +138,31 @@ end
     @test requests[1].query["page_size"] == 10
 end
 
+@testset "Granule spatial parameters" begin
+    for (key, value) in (
+        :bounding_box => "-51.0,66.0,-49.0,68.0",
+        :point => "-50.0,67.0",
+        :line => "-51.0,66.0,-49.0,68.0",
+        :circle => "-50.0,67.0,10000",
+        :polygon => "-51,66,-49,66,-49,68,-51,66",
+    )
+        requests = []
+        responses = [HTTP.Response(200, [], cmr_response(["G1"], "granule"))]
+
+        result = EarthData.granules(;
+            short_name="TEST",
+            key => value,
+            requester=recording_requester(responses, requests),
+        )
+
+        @test getproperty.(result, :GranuleUR) == ["G1"]
+        # The value must reach CMR verbatim: a bounding box whose edges are parallels and
+        # meridians is not the same selection as the polygon with the same corners, whose
+        # edges CMR treats as great-circle arcs.
+        @test occursin("$(key)=$(HTTP.URIs.escapeuri(value))", requests[1].body)
+    end
+end
+
 @testset "Collections search" begin
     requests = []
     responses = [HTTP.Response(200, [], cmr_response(["C1"], "collection"))]

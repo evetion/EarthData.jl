@@ -33,6 +33,23 @@ page size and `all=true` to continue through all pages using the
 all_granules = granules(short_name="GEDI02_A", page_size=2000, all=true)
 ```
 
+### Spatial subsetting
+
+Granule searches accept CMR's spatial parameters — `bounding_box`, `point`, `line`,
+`circle` and `polygon`:
+
+```julia
+gg = granules(
+    short_name="MCD43A3",
+    version="061",
+    bounding_box="-51.0,66.0,-49.0,68.0",
+)
+```
+
+These are not interchangeable. A `bounding_box`'s edges follow parallels and meridians,
+while a `polygon`'s edges are great-circle arcs, so away from the equator a polygon
+through the same four corners selects a smaller area.
+
 ## Collections
 
 `collections` searches collection metadata and returns
