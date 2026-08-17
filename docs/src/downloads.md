@@ -126,6 +126,39 @@ batch HTTPS downloads:
 download(gg, "data")
 ```
 
+### Verified downloads and retries
+
+`download_verified` downloads a granule's `"GET DATA"` file with a bearer token, retrying
+transient failures and checking the size it got against [`granule_size`](@ref):
+
+```julia
+download_verified(first(gg), "data")
+```
+
+Two things it does that a bare `download` does not:
+
+- It writes `path.part` and moves the file into place only once the size checks out. An
+  interrupted transfer therefore leaves nothing behind that looks complete — a truncated
+  HDF or NetCDF granule is only discovered when something opens it, and the reader's error
+  for that names neither the download nor the size.
+- It retries **5xx**, **408** and **429** and connection-level faults, and fails
+  immediately on **400**, **401**, **403** and **404**. Both halves matter: a single 502
+  should not discard an hours-long run, but a 403 from a DAAC means an end-user licence has
+  not been accepted, and retrying that loops until the deadline without ever succeeding.
+
+A server-supplied `Retry-After` overrides the backoff curve, capped at five minutes.
+`deadline` (an absolute `time()`) is what should normally bound the retrying — the attempt
+cap is set high enough to wait out a maintenance window.
+
+To apply the same classification to a search, wrap the requester:
+
+```julia
+granules(short_name="MCD43A3", version="061", requester=classifying_requester())
+```
+
+Without it a CMR 503 arrives as a generic `ErrorException` from `parse_cmr_error`, which is
+indistinguishable from a rejected query.
+
 To write a URL list for another tool:
 
 ```julia

@@ -17,6 +17,7 @@ include("umm/collections.jl")
 include("display.jl")
 include("show.jl")
 include("stub.jl")  # empty methods that are actually defined in extensions
+include("retry.jl")
 
 const world = Extent(X=(-180.0, 180.0), Y=(-90.0, 90.0))
 
@@ -503,5 +504,6 @@ export granules,
     download_url,
     granule_size,
     write_urls,
-    download
+    download,
+    download_verified
 end
