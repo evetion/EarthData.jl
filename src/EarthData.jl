@@ -7,8 +7,10 @@ using JSON3
 using Extents
 using StructTypes
 import Downloads
+import Base64
 
 include("utils.jl")
+include("auth.jl")
 abstract type AbstractJSON end
 include("umm/granules.jl")
 include("umm/collections.jl")

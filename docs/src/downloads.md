@@ -55,6 +55,31 @@ EarthData.netrc!("earthdata_username", "earthdata_password")
 The file is plaintext, so use the same care you would use for any credential
 file.
 
+### Bearer tokens
+
+Earthdata Login also issues bearer tokens, which is the credential an HTTP client
+needs when it sets its own headers rather than delegating to curl's `.netrc`
+support. `EarthData.token()` resolves one from `ENV["EARTHDATA_TOKEN"]`, else the
+first non-comment line of `~/.edl_token`, and `auth_headers` builds the header:
+
+```julia
+headers = EarthData.auth_headers()          # Authorization: Bearer <token>
+Downloads.download(data_urls(first(gg))[1], "granule.h5"; headers)
+```
+
+Resolution never touches the network. To obtain a token from your `.netrc`
+credentials instead, call `EarthData.token_from_netrc()` explicitly:
+
+```julia
+ENV["EARTHDATA_TOKEN"] = EarthData.token_from_netrc()
+```
+
+!!! warning "Two concurrent tokens, maximum"
+    An account may hold two live tokens; requesting a third returns HTTP 403.
+    `token_from_netrc()` lists existing tokens and returns the first, so it cannot
+    exhaust the quota; `token_from_netrc(create=true)` will consume a slot when the
+    account has none. Never call either from a retry loop. Tokens last 60 days.
+
 ## Downloading files
 
 Download one URL to a path:
