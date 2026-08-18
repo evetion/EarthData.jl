@@ -7,6 +7,8 @@ using JSON3
 using Extents
 using StructTypes
 import Downloads
+import GeoInterface
+import Printf
 
 include("utils.jl")
 abstract type AbstractJSON end
@@ -15,6 +17,7 @@ include("umm/collections.jl")
 include("display.jl")
 include("show.jl")
 include("stub.jl")  # empty methods that are actually defined in extensions
+include("spatial.jl")
 
 const world = Extent(X=(-180.0, 180.0), Y=(-90.0, 90.0))
 
@@ -287,7 +290,10 @@ end
 function cmr_query(query::Dict; page_num, page_size)
     q = Dict{String,Any}("page_num" => page_num, "page_size" => page_size)
     for (k, v) in query
-        isnothing(v) || (q[string(k)] = v)
+        isnothing(v) && continue
+        key = string(k)
+        # Spatial parameters also accept geometries; everything else is passed on as given.
+        q[key] = Symbol(key) in spatial_params ? cmr_spatial(Symbol(key), v) : v
     end
     return q
 end

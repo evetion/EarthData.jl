@@ -50,6 +50,44 @@ These are not interchangeable. A `bounding_box`'s edges follow parallels and mer
 while a `polygon`'s edges are great-circle arcs, so away from the equator a polygon
 through the same four corners selects a smaller area.
 
+### Geometries
+
+The same parameters also accept an `Extents.Extent` or any GeoInterface geometry, so a
+geometry you already have can be used directly:
+
+```julia
+using Extents
+
+gg = granules(
+    short_name="MCD43A3",
+    version="061",
+    bounding_box=Extent(X=(-51.0, -49.0), Y=(66.0, 68.0)),
+)
+```
+
+Each parameter takes the geometry that matches it:
+
+| parameter      | geometry                                  |
+|:---------------|:------------------------------------------|
+| `bounding_box` | `Extent`, or anything with an extent      |
+| `point`        | point, or `(lon, lat)`                    |
+| `line`         | line, line string                         |
+| `polygon`      | polygon, linear ring                      |
+| `circle`       | `(lon, lat, radius_m)`, `(point, radius)` |
+
+CMR needs a `polygon` closed and wound counter-clockwise; both are handled for you, since
+CMR reads a clockwise ring as everything *outside* it. CMR's `polygon` is a single ring, so
+a polygon with holes is rejected rather than quietly searching the filled area.
+
+Passing a vector of geometries searches their union, which is how CMR reads a repeated
+spatial parameter:
+
+```julia
+gg = granules(short_name="MCD43A3", version="061", point=[(-50.0, 67.0), (-40.0, 60.0)])
+```
+
+Strings are still passed to CMR unchanged.
+
 ## Collections
 
 `collections` searches collection metadata and returns

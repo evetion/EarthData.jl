@@ -5,6 +5,7 @@ using Documenter
 include("schema_modules.jl")
 include("show.jl")
 include("search.jl")
+include("spatial.jl")  # uses search.jl's fake requester
 
 function setup_env()
     if "EARTHDATA_USER" in keys(ENV)
