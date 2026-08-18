@@ -6,6 +6,7 @@ include("schema_modules.jl")
 include("show.jl")
 include("search.jl")
 include("retry.jl")
+include("verified_download.jl")  # uses search.jl's fake requester
 include("spatial.jl")  # uses search.jl's fake requester
 include("auth.jl")
 

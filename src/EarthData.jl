@@ -531,6 +531,8 @@ function download(
     download(urls(items; scheme, type), folder; kwargs...)
 end
 
+include("verified_download.jl")
+
 export granules,
     collections,
     urls,
@@ -540,5 +542,6 @@ export granules,
     download_url,
     granule_size,
     write_urls,
-    download
+    download,
+    download_verified
 end

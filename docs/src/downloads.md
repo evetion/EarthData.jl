@@ -132,6 +132,23 @@ To write a URL list for another tool:
 write_urls("urls.txt", gg)
 ```
 
+### Verified downloads
+
+`download_verified` downloads a granule's `"GET DATA"` file with a bearer token, retrying
+temporary failures and checking the size it got against `granule_size`:
+
+```julia
+download_verified(first(gg), "data")
+```
+
+It writes `path.part` and moves the file into place only once the size checks out, so an
+interrupted transfer leaves nothing behind that looks finished. That matters because a
+truncated HDF or NetCDF granule is only discovered when something opens it, and the reader's
+error for that names neither the download nor the size.
+
+This complements `aria2c`, which resumes an interrupted file but does not check whether the
+result is complete.
+
 ## Errors and retries
 
 Not every failure means the same thing, so EarthData.jl sorts them into two groups:
