@@ -1,7 +1,7 @@
 name = "EarthData"
 uuid = "0ce7a1f8-0645-46c2-a0bb-6c09c29d93e9"
 authors = ["Maarten Pronk <git@evetion.nl> and contributors"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 Aria2_jll = "9ab3bdc3-1250-5043-8fac-ac7e82d2cbc9"
