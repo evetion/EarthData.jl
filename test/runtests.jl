@@ -5,6 +5,7 @@ using Documenter
 include("schema_modules.jl")
 include("show.jl")
 include("search.jl")
+include("retry.jl")
 
 function setup_env()
     if "EARTHDATA_USER" in keys(ENV)
