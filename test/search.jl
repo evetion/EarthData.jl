@@ -134,8 +134,40 @@ end
     @test requests[1].query === nothing
     @test occursin("short_name=TEST", requests[1].body)
     @test occursin("page_size=2", requests[1].body)
+    @test occursin("page_num=1", requests[1].body)
     @test requests[2].headers["CMR-Search-After"] == "next-page"
+    # CMR answers HTTP 400 "page_num is not allowed with search-after" if both are sent, so
+    # the second page must carry the header and *not* `page_num`.
+    @test !occursin("page_num", requests[2].body)
+    @test occursin("page_size=2", requests[2].body)
+    @test occursin("short_name=TEST", requests[2].body)
     @test isempty(responses)
+end
+
+@testset "CMR GET pagination drops page_num too" begin
+    requests = []
+    responses = [
+        HTTP.Response(
+            200,
+            ["CMR-Search-After" => "next-page"],
+            cmr_response(["G1"], "granule"; hits=2),
+        ),
+        HTTP.Response(200, [], cmr_response(["G2"], "granule"; hits=2)),
+    ]
+
+    EarthData.request(
+        "https://example.test/granules",
+        Dict("short_name" => "TEST"),
+        EarthData.Granules.UMM_G;
+        page_size=1,
+        all=true,
+        method=:GET,
+        requester=recording_requester(responses, requests),
+    )
+
+    @test requests[1].query["page_num"] == 1
+    @test !haskey(requests[2].query, "page_num")
+    @test requests[2].query["page_size"] == 1
 end
 
 @testset "CMR GET compatibility" begin
