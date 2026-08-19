@@ -1,6 +1,10 @@
 using HTTP
 using JSON3
 
+# `homedir()` reads HOME on Unix but USERPROFILE on Windows (libuv's uv_os_homedir), so
+# redirecting only HOME leaves the real home directory in play on Windows.
+withhome(f, dir, env::Pair...) = withenv(f, "HOME" => dir, "USERPROFILE" => dir, env...)
+
 @testset "Token resolution" begin
     withenv("EARTHDATA_TOKEN" => "  tok-from-env  ") do
         # The environment variable wins, and is stripped.
@@ -10,18 +14,18 @@ using JSON3
     mktempdir() do dir
         # An empty variable is treated as absent, not as an empty token — otherwise a shell
         # that exports it unset produces a 401 instead of a setup message.
-        withenv("EARTHDATA_TOKEN" => "", "HOME" => dir) do
+        withhome(dir, "EARTHDATA_TOKEN" => "") do
             @test_throws ErrorException EarthData.token()
         end
 
         write(joinpath(dir, ".edl_token"), "# my token\n\ntok-from-file\n")
-        withenv("EARTHDATA_TOKEN" => nothing, "HOME" => dir) do
+        withhome(dir, "EARTHDATA_TOKEN" => nothing) do
             @test EarthData.token() == "tok-from-file"
         end
     end
 
     mktempdir() do dir
-        withenv("EARTHDATA_TOKEN" => nothing, "HOME" => dir) do
+        withhome(dir, "EARTHDATA_TOKEN" => nothing) do
             msg = try
                 EarthData.token()
                 ""
