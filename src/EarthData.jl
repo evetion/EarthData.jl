@@ -19,6 +19,7 @@ include("umm/collections.jl")
 include("display.jl")
 include("show.jl")
 include("stub.jl")  # empty methods that are actually defined in extensions
+include("retry.jl")
 include("spatial.jl")
 
 const world = Extent(X=(-180.0, 180.0), Y=(-90.0, 90.0))
