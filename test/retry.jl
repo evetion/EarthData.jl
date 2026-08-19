@@ -117,6 +117,49 @@ end
         e
     end
     @test err.retry_after == 7.0
+
+    # `Downloads.Response` is not an `HTTP.Message`, so reading `Retry-After` off one must
+    # not depend on `HTTP.header`. Getting this wrong turned a 503 into a `MethodError`,
+    # which `is_transient` reads as permanent — silently defeating the retry.
+    @test EarthData.retry_after_seconds((; status=503, headers=["Retry-After" => "7"])) ==
+          7.0
+    @test EarthData.retry_after_seconds((; status=503, headers=["retry-after" => "3"])) ==
+          3.0
+    # A response carrying no headers at all falls back to the backoff curve.
+    @test EarthData.retry_after_seconds((; status=503)) == 0.0
+
+    for status in (500, 503, 429, 408)
+        err = try
+            EarthData.check_response(
+                (; status=status, body=codeunits("down"), headers=Pair{String,String}[]),
+                "S3 credentials",
+            )
+            nothing
+        catch e
+            e
+        end
+        @test err isa EarthData.TransientError
+        @test EarthData.is_transient(err)
+    end
+
+    # An HTML error page from an unauthenticated call is permanent, and says so rather than
+    # surfacing as a JSON parse error.
+    err = try
+        EarthData.check_response(
+            (;
+                status=401,
+                body=codeunits("<html>HTTP Basic: Access denied.</html>"),
+                headers=Pair{String,String}[],
+            ),
+            "S3 credentials",
+        )
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test !EarthData.is_transient(err)
+    @test occursin("S3 credentials", err.msg)
 end
 
 @testset "with_retries" begin
