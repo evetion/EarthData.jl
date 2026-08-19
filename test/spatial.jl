@@ -93,6 +93,18 @@ const ccw_ring = "-49,66,-49,68,-51,68,-51,66,-49,66"
         @test_throws ArgumentError EarthData.cmr_spatial(:point, Dict("x" => 1))
         # Small coordinates must not come out in exponent notation, which CMR rejects.
         @test EarthData.cmr_spatial(:point, (1.0e-5, 0.0)) == "0.00001,0"
+
+        # A coordinate list is matched on the element type now, so an eltype that only
+        # happens to hold numbers is not one. Literals infer a concrete eltype
+        # (`[-51, 66]` is `Vector{Int64}`), so this needs an explicit `Any[...]` to hit —
+        # and reaching it means the caller built the vector by hand.
+        @test EarthData.cmr_spatial(:bounding_box, [-51, 66, -49, 68]) == "-51,66,-49,68"
+        @test EarthData.cmr_spatial(:bounding_box, Real[-51, 66, -49, 68]) ==
+              "-51,66,-49,68"
+        @test_throws ArgumentError EarthData.cmr_spatial(
+            :bounding_box,
+            Any[-51, 66, -49, 68],
+        )
     end
 
     @testset "vector of geometries" begin

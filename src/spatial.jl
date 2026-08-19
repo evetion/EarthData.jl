@@ -46,33 +46,43 @@ cmr_spatial(param::Symbol, value) = cmr_spatial(param, GeoInterface.trait(value)
 cmr_spatial(::Symbol, value::AbstractString) = value
 cmr_spatial(::Symbol, ::Nothing) = nothing
 
-function cmr_spatial(param::Symbol, value::AbstractVector)
-    # A vector of numbers is the coordinate list itself; a vector of anything else is a
-    # repeated parameter.
-    all(v -> v isa Real, value) && return join_coords(value)
-    return [cmr_spatial(param, v) for v in value]
-end
+# A vector of numbers is the coordinate list itself; a vector of anything else is a repeated
+# parameter, which CMR reads as the union.
+cmr_spatial(::Symbol, value::AbstractVector{<:Real}) = join_coords(value)
 
-function cmr_spatial(param::Symbol, value::Tuple)
-    # `circle` is the one parameter with no matching geometry, because a radius is not part of
-    # any GeoInterface trait, so it takes a centre plus a radius in metres.
+cmr_spatial(param::Symbol, value::AbstractVector) =
+    [cmr_spatial(param, v) for v in value]
+
+# Tuples are resolved before the trait, because GeoInterface reads *any* numeric tuple as a
+# `PointTrait` — including `circle`'s `(lon, lat, radius_m)`, which is not a 3D point.
+
+# `circle` is the one parameter with no matching geometry, since a radius is not part of any
+# GeoInterface trait: it takes a centre plus a radius in metres. Arity is per-parameter — a
+# 3-tuple is a circle but not a point — so it stays part of the check rather than being
+# absorbed into `NTuple{N,Real}` for every parameter.
+function cmr_spatial(param::Symbol, value::NTuple{N,Real}) where {N}
     if param === :circle
-        length(value) == 2 && !(value[1] isa Real) && return circle_string(value...)
-        length(value) == 3 || throw(
+        N == 3 || throw(
             ArgumentError(
-                "`circle` takes (lon, lat, radius_m) or (point, radius_m); got " *
-                "$(length(value)) values.",
+                "`circle` takes (lon, lat, radius_m) or (point, radius_m); got $(N) values.",
             ),
         )
     elseif param === :point
-        length(value) == 2 ||
-            throw(ArgumentError("`point` takes (lon, lat); got $(length(value)) values."))
+        N == 2 || throw(ArgumentError("`point` takes (lon, lat); got $(N) values."))
     end
-    all(v -> v isa Real, value) || throw(
-        ArgumentError("`$(param)` takes a tuple of numbers; got $(typeof(value))."),
-    )
     return join_coords(value)
 end
+
+cmr_spatial(param::Symbol, value::Tuple{Any,Real}) =
+    param === :circle ? circle_string(value...) :
+    throw(ArgumentError("`$(param)` does not take (point, radius_m); use `circle`."))
+
+cmr_spatial(param::Symbol, value::Tuple) = throw(
+    ArgumentError(
+        "`$(param)` takes a tuple of numbers, or (point, radius_m) for `circle`; got " *
+        "$(typeof(value)).",
+    ),
+)
 
 function circle_string(centre, radius::Real)
     GeoInterface.trait(centre) isa GeoInterface.PointTrait ||
@@ -81,9 +91,10 @@ function circle_string(centre, radius::Real)
 end
 
 # An `Extent` is a `RectangleTrait`, but only carries X and Y if it was built with them.
+# `GeoInterface.extent` is the identity on an `Extent`, so it covers both cases.
 function cmr_spatial(param::Symbol, ::GeoInterface.RectangleTrait, value)
     wrong_param(param, :bounding_box, "a bounding box")
-    ext = value isa Extents.Extent ? value : GeoInterface.extent(value)
+    ext = GeoInterface.extent(value)
     isnothing(ext) &&
         throw(ArgumentError("Cannot get an extent from $(typeof(value)) for `bounding_box`."))
     (haskey(ext, :X) && haskey(ext, :Y)) || throw(
