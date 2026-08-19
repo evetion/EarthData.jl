@@ -90,6 +90,10 @@ Not every failure means the same thing, so EarthData.jl sorts them into two grou
 Getting this wrong is costly either way: one brief 502 should not end an hours-long run, and
 a 403 should not be retried until the deadline.
 
+The split is by status, not by exception type. `Downloads.download` raises
+`Downloads.RequestError` both for a transport fault and for any HTTP error status, so a 403
+and a 503 arrive as the same type and only the status tells them apart.
+
 `with_retries` applies the split, backing off exponentially up to a minute. A `Retry-After`
 from the server takes priority, capped at five minutes. Pass `deadline` (an absolute
 `time()`) to bound the whole thing — the attempt cap is set high enough to wait out a

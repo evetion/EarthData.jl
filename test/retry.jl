@@ -1,3 +1,4 @@
+using Downloads
 using HTTP
 using Test
 
@@ -42,6 +43,57 @@ using Test
     @test EarthData.is_transient(EarthData.TransientError("c", 503, "d"))
     @test !EarthData.is_transient(ArgumentError("permanent"))
     @test !EarthData.is_transient(ErrorException("size mismatch"))
+end
+
+@testset "Status decides, not exception type" begin
+    # `Downloads.download` throws RequestError for BOTH a transport fault and a plain HTTP
+    # error status, so the type cannot be what classifies a failure. A transport fault
+    # carries a libcurl code with status 0; an HTTP error carries CURLE_OK and the status.
+    downloads_error(status, code=Downloads.Curl.CURLE_OK) = Downloads.RequestError(
+        "https://example.test/f.h5",
+        code,
+        "",
+        Downloads.Response("https", "https://example.test/f.h5", status, "", []),
+    )
+
+    # A 403 licence refusal must not be retried just because it arrived as a RequestError:
+    # retrying it loops to the deadline and can never succeed.
+    @test !EarthData.is_transient(downloads_error(403))
+    @test !EarthData.is_transient(downloads_error(401))
+    @test !EarthData.is_transient(downloads_error(404))
+    @test !EarthData.is_transient(downloads_error(400))
+
+    # A 5xx or "come back later" arriving the same way still is.
+    for status in (408, 429, 500, 502, 503, 504)
+        @test EarthData.is_transient(downloads_error(status))
+    end
+
+    # A genuine transport fault has status 0 and stays transient.
+    @test EarthData.is_transient(
+        downloads_error(0, Downloads.Curl.CURLE_COULDNT_RESOLVE_HOST),
+    )
+
+    # HTTP.jl's StatusError is split the same way.
+    status_error(status) = HTTP.Exceptions.StatusError(
+        status,
+        "GET",
+        "/f.h5",
+        HTTP.Response(status, [], "body"),
+    )
+    @test !EarthData.is_transient(status_error(403))
+    @test EarthData.is_transient(status_error(503))
+
+    # `is_transient` and `check_response` must agree on every status, or a retry loop
+    # disagrees with the message the user is shown.
+    for status in (400, 401, 403, 404, 408, 429, 500, 502, 503, 504)
+        threw_transient = try
+            EarthData.check_response(HTTP.Response(status, [], "x"), "test")
+            false
+        catch err
+            err isa EarthData.TransientError
+        end
+        @test threw_transient == EarthData.is_transient(downloads_error(status))
+    end
 end
 
 @testset "Retry-After" begin

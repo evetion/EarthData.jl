@@ -17,6 +17,10 @@ Permanent — retrying cannot help:
 - **403** — the token works, but the account has not accepted the collection's licence or
   approved the DAAC application.
 - **404** — it is not there.
+
+The status decides, not the exception type: `Downloads.RequestError` is thrown both for a
+transport fault and for any HTTP error status, so a 403 and a 503 reach us as the same type.
+See [`error_status`](@ref).
 """
 
 const retry_base = 2.0
@@ -77,20 +81,49 @@ function retry_after_seconds(response)
 end
 
 """
+    error_status(err) -> Int
+
+The HTTP status `err` carries, or `0` when it carries none.
+
+The exception type alone does not say whether a failure was temporary.
+`Downloads.RequestError` is thrown for both kinds: a transport fault carries a libcurl
+`code` with `response.status == 0`, while a plain HTTP error status carries
+`code == CURLE_OK` and the status in `response.status`. A 503 worth retrying and a 403 that
+never will be are the same type, so the status has to be read rather than inferred.
+"""
+error_status(err::Downloads.RequestError) = err.response.status
+error_status(err::HTTP.Exceptions.StatusError) = err.status
+error_status(err) = 0
+
+"""
+    is_transient_status(status) -> Bool
+
+Whether an HTTP status is worth retrying: a 5xx, a 408 or a 429.
+"""
+is_transient_status(status::Integer) = status in transient_statuses || status >= 500
+
+"""
     is_transient(err) -> Bool
 
 Whether `err` is worth retrying: a [`TransientError`](@ref) or a connection failure.
 Deliberately narrow — an `ArgumentError` (permanent status, bad query) and a plain
 `ErrorException` are not.
+
+When `err` carries an HTTP error status ([`error_status`](@ref)) that status decides, so a
+401/403/404 surfacing as a `Downloads.RequestError` is permanent — matching
+[`check_response`](@ref) — rather than transient by virtue of its type.
 """
-is_transient(err) =
-    err isa TransientError ||
-    err isa HTTP.Exceptions.ConnectError ||
-    err isa HTTP.Exceptions.TimeoutError ||
-    err isa HTTP.Exceptions.RequestError ||
-    err isa Downloads.RequestError ||
-    err isa Base.IOError ||
-    err isa EOFError
+function is_transient(err)
+    status = error_status(err)
+    status >= 400 && return is_transient_status(status)
+    return err isa TransientError ||
+           err isa HTTP.Exceptions.ConnectError ||
+           err isa HTTP.Exceptions.TimeoutError ||
+           err isa HTTP.Exceptions.RequestError ||
+           err isa Downloads.RequestError ||
+           err isa Base.IOError ||
+           err isa EOFError
+end
 
 # A response body can be a whole HTML error page; keep the message readable.
 function body_excerpt(r; limit::Integer=800)
@@ -113,7 +146,7 @@ Throw for an error response: [`TransientError`](@ref) if retrying could help, an
 function check_response(r, context::AbstractString)
     r.status < 400 && return nothing
     detail = body_excerpt(r)
-    if r.status in transient_statuses || r.status >= 500
+    if is_transient_status(r.status)
         throw(TransientError(context, r.status, detail, retry_after_seconds(r)))
     elseif r.status == 401
         throw(
@@ -194,9 +227,9 @@ end
 """
     classifying_requester(inner=HTTP.request, context="CMR search")
 
-Wrap a `requester` (as accepted by [`request`](@ref), [`granules`](@ref) and
-[`collections`](@ref)) so a temporary status throws [`TransientError`](@ref) instead of
-being turned into a plain `ErrorException` by `parse_cmr_error`.
+Wrap a `requester` (as accepted by `request`, [`granules`](@ref) and [`collections`](@ref))
+so a temporary status throws [`TransientError`](@ref) instead of being turned into a plain
+`ErrorException` by `parse_cmr_error`.
 
 Only temporary statuses are intercepted. The rest are passed through untouched, so
 `parse_cmr_error`'s reading of CMR's `errors` array is still what the caller sees.
@@ -208,7 +241,7 @@ granules(short_name="MCD43A3", version="061", requester=classifying_requester())
 function classifying_requester(inner=HTTP.request, context::AbstractString="CMR search")
     return function (args...; kwargs...)
         r = inner(args...; kwargs...)
-        if r.status in transient_statuses || r.status >= 500
+        if is_transient_status(r.status)
             throw(TransientError(context, r.status, body_excerpt(r), retry_after_seconds(r)))
         end
         return r
