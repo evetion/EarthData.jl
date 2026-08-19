@@ -66,14 +66,30 @@ function Base.showerror(io::IO, e::TransientError)
     )
 end
 
+# `HTTP.header` only accepts an `HTTP.Messages.Message`. A `Downloads.Response` carries its
+# headers as plain pairs, so read those directly rather than by type.
+retry_after_header(response::HTTP.Messages.Message) =
+    HTTP.header(response, "Retry-After", "")
+
+function retry_after_header(response)
+    headers = get(() -> Pair{String,String}[], response, :headers)
+    for (name, value) in headers
+        lowercase(String(name)) == "retry-after" && return String(value)
+    end
+    return ""
+end
+
 """
     retry_after_seconds(response) -> Float64
 
 Seconds the server asked us to wait, from `Retry-After`, or `0.0` when the header is absent
 or unparseable. Only the delta-seconds form is read; clamped to `retry_after_max`.
+
+Accepts an `HTTP.Response` or anything else carrying a `headers` collection of pairs, such
+as a `Downloads.Response`. A response without headers at all reads as `0.0`.
 """
 function retry_after_seconds(response)
-    raw = HTTP.header(response, "Retry-After", "")
+    raw = retry_after_header(response)
     isempty(strip(raw)) && return 0.0
     seconds = tryparse(Float64, strip(raw))
     isnothing(seconds) && return 0.0

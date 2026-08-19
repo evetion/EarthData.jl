@@ -5,21 +5,60 @@ using AWSS3
 using JSON3
 using Dates
 using TimeZones
+import Downloads
 
-function EarthData.get_s3_credentials(daac="nsidc")
+function _fetch_s3_credentials(daac)
+    url = "https://data.$daac.earthdatacloud.nasa.gov/s3credentials"
+    response = nothing
     body = sprint() do output
-        return EarthData._request(
-            "https://data.$daac.earthdatacloud.nasa.gov/s3credentials";
-            output=output,
+        response = EarthData._request(url; output=output)
+        return response
+    end
+
+    # `_request` follows Earthdata's auth redirects, so a failure arrives as a body rather
+    # than an exception: an unauthenticated call ends on an HTML "Access denied" page, which
+    # would otherwise surface as a JSON parse error naming neither the cause nor this URL.
+    status = response isa Downloads.Response ? response.status : 0
+    headers = response isa Downloads.Response ? response.headers : Pair{String,String}[]
+    EarthData.check_response(
+        (; status=status, body=codeunits(body), headers=headers),
+        "S3 credentials",
+    )
+
+    credentials = try
+        JSON3.read(body)
+    catch
+        throw(
+            ArgumentError(
+                """
+                Could not read the S3 credentials response as JSON ($url).
+
+                $(EarthData.body_excerpt((; body=codeunits(body))))
+                """,
+            ),
         )
     end
-    body = JSON3.read(body)
+
     AWSS3.AWSCredentials(
-        body.accessKeyId,
-        body.secretAccessKey,
-        body.sessionToken,
-        expiry=DateTime(body.expiration, dateformat"y-m-d H:M:S+z"),
+        credentials.accessKeyId,
+        credentials.secretAccessKey,
+        credentials.sessionToken,
+        expiry=DateTime(credentials.expiration, dateformat"y-m-d H:M:S+z"),
     )
+end
+
+"""
+    get_s3_credentials(daac="nsidc") -> AWSS3.AWSCredentials
+
+Fetch temporary in-region S3 credentials from a DAAC's `/s3credentials` endpoint.
+
+Requires Earthdata Login credentials (see `netrc!`). Retries while the endpoint fails
+temporarily; a 401/403 is permanent and raises immediately.
+"""
+function EarthData.get_s3_credentials(daac="nsidc")
+    EarthData.with_retries(context="S3 credentials") do
+        _fetch_s3_credentials(daac)
+    end
 end
 
 function set_env!(creds::AWSS3.AWSCredentials, env=ENV)
