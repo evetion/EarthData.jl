@@ -19,8 +19,23 @@ function granule_umm(id)
         "GranuleUR" => id,
         "RelatedUrls" => [
             Dict("URL" => "https://example.test/$id.h5", "Type" => "GET DATA"),
-            Dict("URL" => "s3://example-bucket/$id.h5", "Type" => "GET DATA"),
+            # A real record types the S3 copy of the same file separately, and carries
+            # several URLs that are not the data at all.
+            Dict(
+                "URL" => "s3://example-bucket/$id.h5",
+                "Type" => "GET DATA VIA DIRECT ACCESS",
+            ),
+            Dict(
+                "URL" => "https://example.test/s3credentials",
+                "Type" => "VIEW RELATED INFORMATION",
+            ),
         ],
+        "DataGranule" => Dict(
+            "DayNightFlag" => "DAY",
+            "ProductionDateTime" => "2020-01-01T00:00:00Z",
+            "ArchiveAndDistributionInformation" =>
+                [Dict("Name" => "$id.h5", "Size" => 1.5, "SizeUnit" => "MB")],
+        ),
         "MetadataSpecification" =>
             Dict("URL" => "https://example.test", "Version" => "1.6.6", "Name" => "UMM-G"),
         "ProviderDates" => [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
@@ -46,6 +61,10 @@ function collection_umm(id)
         "Abstract" => "Test collection",
         "DOI" => Dict(),
     )
+end
+
+struct SizelessItem <: EarthData.AbstractJSON
+    DataGranule::Nothing
 end
 
 function cmr_response(ids, concept_type; hits=length(ids))
@@ -115,8 +134,40 @@ end
     @test requests[1].query === nothing
     @test occursin("short_name=TEST", requests[1].body)
     @test occursin("page_size=2", requests[1].body)
+    @test occursin("page_num=1", requests[1].body)
     @test requests[2].headers["CMR-Search-After"] == "next-page"
+    # CMR answers HTTP 400 "page_num is not allowed with search-after" if both are sent, so
+    # the second page must carry the header and *not* `page_num`.
+    @test !occursin("page_num", requests[2].body)
+    @test occursin("page_size=2", requests[2].body)
+    @test occursin("short_name=TEST", requests[2].body)
     @test isempty(responses)
+end
+
+@testset "CMR GET pagination drops page_num too" begin
+    requests = []
+    responses = [
+        HTTP.Response(
+            200,
+            ["CMR-Search-After" => "next-page"],
+            cmr_response(["G1"], "granule"; hits=2),
+        ),
+        HTTP.Response(200, [], cmr_response(["G2"], "granule"; hits=2)),
+    ]
+
+    EarthData.request(
+        "https://example.test/granules",
+        Dict("short_name" => "TEST"),
+        EarthData.Granules.UMM_G;
+        page_size=1,
+        all=true,
+        method=:GET,
+        requester=recording_requester(responses, requests),
+    )
+
+    @test requests[1].query["page_num"] == 1
+    @test !haskey(requests[2].query, "page_num")
+    @test requests[2].query["page_size"] == 1
 end
 
 @testset "CMR GET compatibility" begin
@@ -136,6 +187,31 @@ end
     @test requests[1].body === nothing
     @test requests[1].query["short_name"] == "TEST"
     @test requests[1].query["page_size"] == 10
+end
+
+@testset "Granule spatial parameters" begin
+    for (key, value) in (
+        :bounding_box => "-51.0,66.0,-49.0,68.0",
+        :point => "-50.0,67.0",
+        :line => "-51.0,66.0,-49.0,68.0",
+        :circle => "-50.0,67.0,10000",
+        :polygon => "-51,66,-49,66,-49,68,-51,66",
+    )
+        requests = []
+        responses = [HTTP.Response(200, [], cmr_response(["G1"], "granule"))]
+
+        result = EarthData.granules(;
+            short_name="TEST",
+            key => value,
+            requester=recording_requester(responses, requests),
+        )
+
+        @test getproperty.(result, :GranuleUR) == ["G1"]
+        # The value must reach CMR verbatim: a bounding box whose edges are parallels and
+        # meridians is not the same selection as the polygon with the same corners, whose
+        # edges CMR treats as great-circle arcs.
+        @test occursin("$(key)=$(HTTP.URIs.escapeuri(value))", requests[1].body)
+    end
 end
 
 @testset "Collections search" begin
@@ -167,15 +243,60 @@ end
         ),
     )
 
-    @test EarthData.urls(granule) ==
-          ["https://example.test/G1.h5", "s3://example-bucket/G1.h5"]
-    @test EarthData.urls(granule; scheme=:https) == ["https://example.test/G1.h5"]
-    @test EarthData.https_urls(granule) == ["https://example.test/G1.h5"]
+    @test EarthData.urls(granule) == [
+        "https://example.test/G1.h5",
+        "s3://example-bucket/G1.h5",
+        "https://example.test/s3credentials",
+    ]
+    @test EarthData.urls(granule; scheme=:https) ==
+          ["https://example.test/G1.h5", "https://example.test/s3credentials"]
+    @test EarthData.https_urls(granule) ==
+          ["https://example.test/G1.h5", "https://example.test/s3credentials"]
     @test EarthData.s3_urls(granule) == ["s3://example-bucket/G1.h5"]
     @test EarthData.download_url(granule; scheme=:https) == "https://example.test/G1.h5"
     @test EarthData.download_url(granule; scheme=:ftp) === nothing
     @test EarthData.urls([granule, granule]; scheme=:s3) ==
           ["s3://example-bucket/G1.h5", "s3://example-bucket/G1.h5"]
+
+    # Filtering on the scheme alone keeps the credentials endpoint; filtering on the type
+    # is what isolates the file.
+    @test EarthData.data_urls(granule) == ["https://example.test/G1.h5"]
+    @test EarthData.urls(granule; type="GET DATA VIA DIRECT ACCESS") ==
+          ["s3://example-bucket/G1.h5"]
+    @test EarthData.urls(granule; scheme=:https, type="GET DATA VIA DIRECT ACCESS") == []
+    @test EarthData.urls(granule; type="NOT A TYPE") == []
+    @test EarthData.download_url(granule; type="GET DATA") == "https://example.test/G1.h5"
+    @test EarthData.data_urls([granule, granule]) ==
+          ["https://example.test/G1.h5", "https://example.test/G1.h5"]
+end
+
+@testset "Granule sizes" begin
+    requests = []
+    responses = [HTTP.Response(200, [], cmr_response(["G1"], "granule"))]
+    granule = only(
+        EarthData.request(
+            "https://example.test/granules",
+            Dict("short_name" => "TEST"),
+            EarthData.Granules.UMM_G;
+            requester=recording_requester(responses, requests),
+        ),
+    )
+
+    # `Size` is 1.5 with `SizeUnit` "MB", so the unit has to be read: taking the number
+    # alone would report 1 byte where the file is 1.5 MiB.
+    @test EarthData.granule_size(granule) == round(Int, 1.5 * 1024^2)
+
+    @test EarthData.size_unit_factor("Bytes") == 1
+    @test EarthData.size_unit_factor("b") == 1
+    @test EarthData.size_unit_factor("KB") == 1024
+    @test EarthData.size_unit_factor(" mb ") == 1024^2
+    @test EarthData.size_unit_factor("GB") == 1024^3
+    @test EarthData.size_unit_factor("TB") == 1024^4
+    @test_throws ArgumentError EarthData.size_unit_factor("furlongs")
+
+    # A record with no size information reports nothing rather than zero, so a caller can
+    # tell "not stated" from "empty".
+    @test EarthData.granule_size(SizelessItem(nothing)) === nothing
 end
 
 @testset "Batch downloads" begin
@@ -201,10 +322,20 @@ end
 
     commands = Cmd[]
     folder = mktempdir()
-    paths = EarthData.download(granules, folder; runner=cmd -> push!(commands, cmd))
+    paths = EarthData.download(
+        granules,
+        folder;
+        type="GET DATA",
+        runner=cmd -> push!(commands, cmd),
+    )
 
     @test paths == [joinpath(folder, "G1.h5"), joinpath(folder, "G2.h5")]
     @test length(commands) == 1
+
+    # Without the type filter every HTTPS related URL is fetched, including the cloud
+    # credentials endpoint — which is why `type` exists.
+    unfiltered = EarthData.download(granules, folder; runner=Returns(nothing))
+    @test joinpath(folder, "s3credentials") in unfiltered
     command_string = string(only(commands))
     @test occursin("-i", command_string)
     @test occursin("-c", command_string)

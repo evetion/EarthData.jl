@@ -43,6 +43,36 @@ https_urls(gg)
 s3_urls(gg)
 ```
 
+### Selecting the data file
+
+A record's related URLs are not all data. A single MCD43A3 granule, for example, carries
+eight: the HTTPS file, its S3 copy, a DOI landing page, a metadata sidecar, browse imagery
+and a cloud-credentials endpoint. `https_urls` returns most of those, so filter on
+`RelatedUrls[].Type` instead — `data_urls` does exactly that, keeping only `"GET DATA"`:
+
+```julia
+data_urls(first(gg))          # the file
+download(gg, "data"; type="GET DATA")
+```
+
+The S3 copy of the same file is typed `"GET DATA VIA DIRECT ACCESS"`:
+
+```julia
+urls(first(gg); scheme=:s3, type="GET DATA VIA DIRECT ACCESS")
+```
+
+### Granule sizes
+
+`granule_size` reports a granule's size in bytes:
+
+```julia
+granule_size(first(gg))
+```
+
+It prefers `SizeInBytes`, and otherwise converts `Size` using the record's `SizeUnit`.
+`Size` alone is unit-less — providers commonly report megabytes — so reading it without
+the unit understates the size by a factor of about a million.
+
 ## Earthdata credentials
 
 NASA Earthdata downloads require credentials. Store them in your `.netrc` file
@@ -54,6 +84,31 @@ EarthData.netrc!("earthdata_username", "earthdata_password")
 
 The file is plaintext, so use the same care you would use for any credential
 file.
+
+### Bearer tokens
+
+Earthdata Login also issues bearer tokens, which is the credential an HTTP client
+needs when it sets its own headers rather than delegating to curl's `.netrc`
+support. `EarthData.token()` resolves one from `ENV["EARTHDATA_TOKEN"]`, else the
+first non-comment line of `~/.edl_token`, and `auth_headers` builds the header:
+
+```julia
+headers = EarthData.auth_headers()          # Authorization: Bearer <token>
+Downloads.download(data_urls(first(gg))[1], "granule.h5"; headers)
+```
+
+Resolution never touches the network. To obtain a token from your `.netrc`
+credentials instead, call `EarthData.token_from_netrc()` explicitly:
+
+```julia
+ENV["EARTHDATA_TOKEN"] = EarthData.token_from_netrc()
+```
+
+!!! warning "Two concurrent tokens, maximum"
+    An account may hold two live tokens; requesting a third returns HTTP 403.
+    `token_from_netrc()` lists existing tokens and returns the first, so it cannot
+    exhaust the quota; `token_from_netrc(create=true)` will consume a slot when the
+    account has none. Never call either from a retry loop. Tokens last 60 days.
 
 ## Downloading files
 
