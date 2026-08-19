@@ -71,9 +71,13 @@ end
 retry_after_header(response::HTTP.Messages.Message) =
     HTTP.header(response, "Retry-After", "")
 
+# `Downloads.Response` is a plain struct: `get(f, ::Downloads.Response, ::Symbol)` does not
+# exist, so reach for the field rather than an index. Getting this wrong is what turned a
+# 503 into a `MethodError`, which `is_transient` reads as permanent.
+headers_of(response) = hasproperty(response, :headers) ? response.headers : ()
+
 function retry_after_header(response)
-    headers = get(() -> Pair{String,String}[], response, :headers)
-    for (name, value) in headers
+    for (name, value) in headers_of(response)
         lowercase(String(name)) == "retry-after" && return String(value)
     end
     return ""
