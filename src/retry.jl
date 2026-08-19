@@ -1,34 +1,21 @@
 """
-Telling a temporary failure apart from a permanent one.
+Saying what an Earthdata failure means, in the cases where the status alone misleads.
 
-Both directions cost real work if you get them wrong. Giving up on a brief server hiccup
-throws away everything a long run had done. Retrying an error that can never succeed loops
-until the deadline.
+Retrying is not this package's job: HTTP.jl has `retrylayer` (on by default, 4 attempts) and
+`aria2c` has `--max-tries`/`--retry-wait`/`--continue`. What neither can know is what a DAAC
+means by a given status, and for one status HTTP.jl's default is wrong here:
 
-Temporary — the service said nothing about the request:
+- HTTP.jl's retryable set is `(403, 408, 409, 429, 500, 502, 503, 504, 599)`. A 403 from a
+  DAAC nearly always means the account has not accepted the collection's licence, so retrying
+  it spends the attempt budget on a request that can never succeed. See [`retry_check`](@ref).
+- **401** means the token is missing, malformed or expired (they last 60 days), not that the
+  request was wrong.
 
-- **5xx**, plus **408** and **429** (the request was fine; come back later).
-- Connection faults: DNS, connect, timeout, reset, truncated body.
-
-Permanent — retrying cannot help:
-
-- **400** — the query is wrong.
-- **401** — the token is missing, malformed or expired (they last 60 days).
-- **403** — the token works, but the account has not accepted the collection's licence or
-  approved the DAAC application.
-- **404** — it is not there.
-
-The status decides, not the exception type: `Downloads.RequestError` is thrown both for a
-transport fault and for any HTTP error status, so a 403 and a 503 reach us as the same type.
-See [`error_status`](@ref).
+Permanent here is 400, 401, 403 and 404; temporary is 5xx, 408 and 429. The status decides,
+not the exception type: `Downloads.RequestError` is thrown both for a transport fault and for
+any HTTP error status, so a 403 and a 503 reach us as the same type. See
+[`error_status`](@ref).
 """
-
-const retry_base = 2.0
-const retry_max_backoff = 60.0
-
-# The attempt cap should not be what stops a run; a caller's `deadline` should. A download is
-# minutes of work, so a maintenance window is worth waiting out rather than discarding.
-const retry_attempts = 60
 
 const transient_statuses = (408, 429, 500, 502, 503, 504)
 
@@ -196,19 +183,24 @@ function check_response(r, context::AbstractString)
 end
 
 """
-    with_retries(f; context, attempts=retry_attempts, verbose=true, deadline=Inf) -> f()
+    with_retries(f; context, attempts=4, verbose=true, deadline=Inf) -> f()
 
-Call `f`, retrying while it fails temporarily (see [`is_transient`](@ref)) with exponential
-backoff from `retry_base` up to `retry_max_backoff`. Other errors propagate on the first
-attempt, and the last failure is rethrown as-is so the user sees the service's own message.
+Retry `f` while it fails temporarily (see [`is_transient`](@ref)), backing off exponentially.
 
-`deadline` is an absolute `time()` bounding the retrying, and it — not `attempts` — is what
-should normally stop a run. A `Retry-After` from the server overrides the backoff upward.
+Deliberately kept for one caller: `get_s3_credentials`. A DAAC's `/s3credentials` goes over
+`Downloads` rather than HTTP.jl, so neither `retrylayer` nor `aria2c` covers it, and it was
+the one call with no retry of its own — `main` failed against it with
+`Connection timed out after 30017 milliseconds` on valid credentials.
+
+Anything going over HTTP.jl should use its own `retries`/`retry_check` instead of this, and
+anything downloading should use `aria2c`. `attempts` matches HTTP.jl's default of 4 rather
+than trying to outlast a maintenance window; pass `deadline` (an absolute `time()`) to bound
+the whole thing.
 """
 function with_retries(
     f;
     context::AbstractString,
-    attempts::Integer=retry_attempts,
+    attempts::Integer=4,
     verbose::Bool=true,
     deadline::Float64=Inf,
 )
@@ -219,7 +211,7 @@ function with_retries(
             return f()
         catch err
             (is_transient(err) && attempt < attempts) || rethrow()
-            backoff = min(retry_base * 2.0^(attempt - 1), retry_max_backoff)
+            backoff = min(2.0^attempt, 60.0)
             requested = err isa TransientError ? err.retry_after : 0.0
             requested > 0 && (backoff = max(backoff, requested))
             time() + backoff >= deadline && rethrow()
@@ -231,20 +223,41 @@ function with_retries(
 end
 
 """
-    classifying_requester(inner=HTTP.request, context="CMR search")
+    retry_check(s, ex, req, resp, resp_body) -> Bool
 
-Wrap a `requester` (as accepted by `request`, [`granules`](@ref) and [`collections`](@ref))
-so a temporary status throws [`TransientError`](@ref) instead of being turned into a plain
-`ErrorException` by `parse_cmr_error`.
+A `retry_check` for HTTP.jl's `retrylayer`, so a DAAC 403 is not retried.
 
-Only temporary statuses are intercepted. The rest are passed through untouched, so
-`parse_cmr_error`'s reading of CMR's `errors` array is still what the caller sees.
+HTTP.jl retries `(403, 408, 409, 429, 500, 502, 503, 504, 599)`. The 403 is defensible for a
+generic client — some CDNs do return a transient one — but for Earthdata it means an
+unaccepted end-user licence, and retrying it can never succeed.
 
 ```julia
-granules(short_name="MCD43A3", version="061", requester=classifying_requester())
+HTTP.request(method, url, headers; retry_check=EarthData.retry_check)
 ```
 """
-function classifying_requester(inner=HTTP.request, context::AbstractString="CMR search")
+retry_check(s, ex, req, resp, resp_body) =
+    !isnothing(resp) && is_transient_status(resp.status)
+
+"""
+    earthdata_requester(inner=HTTP.request, context="CMR search")
+
+A `requester` (as accepted by `request`, [`granules`](@ref) and [`collections`](@ref)) that
+re-throws a temporary CMR status as [`TransientError`](@ref), handing it back to HTTP.jl's
+own retry layer instead of letting `parse_cmr_error` flatten it into an `ErrorException`.
+
+Needed because the search path passes `status_exception=false`, which switches off HTTP.jl's
+*status-based* retrying: with no exception thrown, `retryable(::StatusError)` is never
+consulted, so a CMR 503 comes back as a plain 503 response after a single attempt. Connection
+faults are unaffected — those throw either way, and HTTP.jl already retries them.
+
+A permanent status is passed through untouched, so `parse_cmr_error`'s reading of CMR's
+`errors` array is still what the caller sees.
+
+```julia
+granules(short_name="MCD43A3", version="061", requester=earthdata_requester())
+```
+"""
+function earthdata_requester(inner=HTTP.request, context::AbstractString="CMR search")
     return function (args...; kwargs...)
         r = inner(args...; kwargs...)
         if is_transient_status(r.status)

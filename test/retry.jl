@@ -186,6 +186,36 @@ end
     @test occursin("S3 credentials", err.msg)
 end
 
+@testset "retry_check" begin
+    # HTTP.jl retries 403 by default. For a DAAC that is an unaccepted licence, so it must not
+    # be retried — the one place the generic client's default is wrong for Earthdata.
+    req = HTTP.Request("GET", "/")
+    @test !EarthData.retry_check(nothing, nothing, req, HTTP.Response(403, [], ""), nothing)
+
+    for status in (408, 429, 500, 502, 503, 504)
+        @test EarthData.retry_check(
+            nothing,
+            nothing,
+            req,
+            HTTP.Response(status, [], ""),
+            nothing,
+        )
+    end
+
+    for status in (400, 401, 404)
+        @test !EarthData.retry_check(
+            nothing,
+            nothing,
+            req,
+            HTTP.Response(status, [], ""),
+            nothing,
+        )
+    end
+
+    # No response at all (a connection fault) is HTTP.jl's own business, not ours.
+    @test !EarthData.retry_check(nothing, nothing, req, nothing, nothing)
+end
+
 @testset "with_retries" begin
     # A temporary failure is retried; `attempts` bounds it.
     calls = Ref(0)
@@ -217,19 +247,15 @@ end
     end
     @test calls[] == 1
 
-    # The attempt cap should not be what normally stops a run: at the maximum backoff it has
-    # to outlast a maintenance window, leaving `deadline` in charge.
-    @test EarthData.retry_attempts * EarthData.retry_max_backoff >= 3600
-
     @test sprint(showerror, EarthData.TransientError("ctx", 502, "gateway")) |>
           s -> occursin("502", s) && occursin("ctx", s)
 end
 
-@testset "classifying_requester" begin
+@testset "earthdata_requester" begin
     # A CMR 503 should be retryable rather than collapsed into parse_cmr_error's generic
     # ErrorException.
     inner = (args...; kwargs...) -> HTTP.Response(503, [], "CMR is down")
-    @test_throws EarthData.TransientError EarthData.classifying_requester(inner)(
+    @test_throws EarthData.TransientError EarthData.earthdata_requester(inner)(
         "POST",
         "https://example.test",
         [],
@@ -239,7 +265,7 @@ end
     # own `errors` array.
     body = JSON3.write(Dict("errors" => ["Parameter [nope] was not recognized."]))
     permanent = (args...; kwargs...) -> HTTP.Response(400, [], body)
-    r = EarthData.classifying_requester(permanent)("POST", "https://example.test", [])
+    r = EarthData.earthdata_requester(permanent)("POST", "https://example.test", [])
     @test r.status == 400
 
     requests = []
@@ -248,7 +274,7 @@ end
         "https://example.test/granules",
         Dict("short_name" => "TEST"),
         EarthData.Granules.UMM_G;
-        requester=EarthData.classifying_requester(
+        requester=EarthData.earthdata_requester(
             recording_requester(responses, requests),
         ),
     )

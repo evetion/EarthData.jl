@@ -134,40 +134,44 @@ write_urls("urls.txt", gg)
 
 ## Errors and retries
 
-Not every failure means the same thing, so EarthData.jl sorts them into two groups:
+**Retrying is not this package's job.** HTTP.jl's `retrylayer` is on by default (4 attempts,
+exponential backoff), and `aria2c` — which `download` uses for batches — has `--max-tries`,
+`--retry-wait` and `--continue`. Reach for those.
 
-- **Temporary** — 5xx, 408, 429, and connection faults. The service said nothing about the
-  request, so waiting and trying again can work. These throw `TransientError`.
-- **Permanent** — 400, 401, 403, 404. These throw an `ArgumentError` saying what to fix. A
-  403 from a DAAC nearly always means the account has not accepted the collection's licence,
-  and retrying cannot help.
+What a general-purpose client cannot know is what a DAAC *means* by a status, and in one case
+its default is wrong for Earthdata: HTTP.jl's retryable set includes **403**, but a 403 from
+a DAAC nearly always means the account has not accepted the collection's licence, so retrying
+spends the attempt budget on a request that can never succeed.
 
-Getting this wrong is costly either way: one brief 502 should not end an hours-long run, and
-a 403 should not be retried until the deadline.
+So EarthData.jl contributes the classification, not the loop:
+
+- **Temporary** — 5xx, 408, 429. The service said nothing about the request.
+- **Permanent** — 400, 401, 403, 404, each with an `ArgumentError` naming the fix. A 401
+  means the token is missing or expired (they last 60 days); a 403 means the licence.
 
 The split is by status, not by exception type. `Downloads.download` raises
 `Downloads.RequestError` both for a transport fault and for any HTTP error status, so a 403
 and a 503 arrive as the same type and only the status tells them apart.
 
-`with_retries` applies the split, backing off exponentially up to a minute. A `Retry-After`
-from the server takes priority, capped at five minutes. Pass `deadline` (an absolute
-`time()`) to bound the whole thing — the attempt cap is set high enough to wait out a
-maintenance window, so `deadline` is what should normally stop a run.
+For searches, `earthdata_requester` plugs into the existing `requester` hook:
 
 ```julia
-EarthData.with_retries(context="my download") do
-    download(url, path)
-end
+granules(short_name="MCD43A3", version="061", requester=earthdata_requester())
 ```
 
-Searches are classified through the existing `requester` hook:
+This is needed because the search path passes `status_exception=false`, which switches off
+HTTP.jl's *status-based* retrying: with no exception thrown, `retryable(::StatusError)` is
+never consulted, so a CMR 503 comes back as a plain 503 response after one attempt.
+(Connection faults still retry, since those throw either way.) Pair it with `retry_check` to
+stop 403s being retried:
 
 ```julia
-granules(short_name="MCD43A3", version="061", requester=classifying_requester())
+HTTP.request(...; retry_check=EarthData.retry_check)
 ```
 
-Without it a CMR 503 arrives as a generic `ErrorException` from `parse_cmr_error`, which
-looks the same as a rejected query.
+One exception keeps its own retry: `get_s3_credentials`. A DAAC's `/s3credentials` goes over
+`Downloads`, so neither `retrylayer` nor `aria2c` covers it, and it was the one call with no
+retry at all.
 
 ## S3 downloads
 
