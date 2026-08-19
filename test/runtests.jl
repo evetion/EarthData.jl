@@ -5,6 +5,7 @@ using Documenter
 include("schema_modules.jl")
 include("show.jl")
 include("search.jl")
+include("spatial.jl")  # uses search.jl's fake requester
 include("auth.jl")
 
 function setup_env()
