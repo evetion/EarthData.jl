@@ -400,7 +400,26 @@ function urls(items::AbstractVector{<:AbstractJSON}; scheme=nothing, type=nothin
     return result
 end
 
+"""
+    https_urls(item) -> Vector{String}
+
+The item's related URLs that use the `https` scheme.
+
+Every related URL is returned, not just the data: a DOI landing page, a metadata sidecar
+and browse imagery all use `https` too. See [`data_urls`](@ref) when what you want is
+something to download.
+"""
 https_urls(item) = urls(item; scheme=:https)
+
+"""
+    s3_urls(item) -> Vector{String}
+
+The item's related URLs that use the `s3` scheme, for direct in-region S3 access.
+
+Reading these requires DAAC-issued temporary credentials and an `AWSS3` session; see
+`create_aws_config`. As with [`https_urls`](@ref), the filter is on the scheme alone, so
+the result is not necessarily just the data file.
+"""
 s3_urls(item) = urls(item; scheme=:s3)
 
 """
