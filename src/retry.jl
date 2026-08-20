@@ -66,38 +66,24 @@ function Base.showerror(io::IO, e::TransientError)
     )
 end
 
-# `HTTP.header` only accepts an `HTTP.Messages.Message`. A `Downloads.Response` carries its
-# headers as plain pairs, so read those directly rather than by type.
-retry_after_header(response::HTTP.Messages.Message) =
-    HTTP.header(response, "Retry-After", "")
-
-# `Downloads.Response` is a plain struct: `get(f, ::Downloads.Response, ::Symbol)` does not
-# exist, so reach for the field rather than an index. Getting this wrong is what turned a
-# 503 into a `MethodError`, which `is_transient` reads as permanent.
-headers_of(response) = hasproperty(response, :headers) ? response.headers : ()
-
-function retry_after_header(response)
-    for (name, value) in headers_of(response)
-        lowercase(String(name)) == "retry-after" && return String(value)
-    end
-    return ""
-end
-
 """
     retry_after_seconds(response) -> Float64
 
 Seconds the server asked us to wait, from `Retry-After`, or `0.0` when the header is absent
 or unparseable. Only the delta-seconds form is read; clamped to `retry_after_max`.
 
-Accepts an `HTTP.Response` or anything else carrying a `headers` collection of pairs, such
-as a `Downloads.Response`. A response without headers at all reads as `0.0`.
+Reads `response.headers` directly rather than going through `HTTP.header`, which only
+accepts an `HTTP.Messages.Message` — a `Downloads.Response` is a plain struct, and that is
+the shape `/s3credentials` fails with.
 """
 function retry_after_seconds(response)
-    raw = retry_after_header(response)
-    isempty(strip(raw)) && return 0.0
-    seconds = tryparse(Float64, strip(raw))
-    isnothing(seconds) && return 0.0
-    return clamp(seconds, 0.0, retry_after_max)
+    for (name, value) in response.headers
+        lowercase(String(name)) == "retry-after" || continue
+        seconds = tryparse(Float64, strip(String(value)))
+        isnothing(seconds) && return 0.0
+        return clamp(seconds, 0.0, retry_after_max)
+    end
+    return 0.0
 end
 
 """

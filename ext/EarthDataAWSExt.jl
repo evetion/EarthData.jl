@@ -9,19 +9,22 @@ import Downloads
 
 function _fetch_s3_credentials(daac)
     url = "https://data.$daac.earthdatacloud.nasa.gov/s3credentials"
+    # Declared outside so the closure's response survives `sprint`, which returns the body.
     response = nothing
     body = sprint() do output
-        response = EarthData._request(url; output=output)
-        return response
+        response = Downloads.request(url; output=output)
     end
 
-    # `_request` follows Earthdata's auth redirects, so a failure arrives as a body rather
-    # than an exception: an unauthenticated call ends on an HTML "Access denied" page, which
-    # would otherwise surface as a JSON parse error naming neither the cause nor this URL.
-    status = response isa Downloads.Response ? response.status : 0
-    headers = response isa Downloads.Response ? response.headers : Pair{String,String}[]
+    # `Downloads.request` returns a `Response` for an HTTP error status rather than throwing
+    # (a transport fault does throw, as `RequestError`, and propagates), so an error status
+    # has to be read off the response.
+    #
+    # It will not always be one: without credentials, curl follows the redirect to the EDL
+    # login form and the *login page* answers 200, so an unauthenticated call arrives here as
+    # a successful HTML response. That case is caught by the JSON read below, which is why it
+    # names the URL rather than letting a bare parse error surface.
     EarthData.check_response(
-        (; status=status, body=codeunits(body), headers=headers),
+        (; status=response.status, body=codeunits(body), headers=response.headers),
         "S3 credentials",
     )
 

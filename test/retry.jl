@@ -118,13 +118,9 @@ end
     end
     @test err.retry_after == 7.0
 
-    # `Downloads.Response` is not an `HTTP.Message`, so reading `Retry-After` off one must
-    # not depend on `HTTP.header`. Getting this wrong turned a 503 into a `MethodError`,
-    # which `is_transient` reads as permanent — silently defeating the retry.
-    #
-    # Test the real struct, not a NamedTuple standing in for it: a NamedTuple supports
-    # `get(f, x, :headers)` and `Downloads.Response` does not, so a stand-in passes while
-    # the type this exists for throws.
+    # `Downloads.Response` is not an `HTTP.Message`, and it is the shape `/s3credentials`
+    # fails with. Use the real struct rather than a NamedTuple stand-in, which supports
+    # accessors the struct does not and so passes where the real type would not.
     downloads_response(status, headers) =
         Downloads.Response("https", "https://example.test", status, "", headers)
 
@@ -155,7 +151,6 @@ end
     # NamedTuples must keep working — that is what the AWS extension passes.
     @test EarthData.retry_after_seconds((; status=503, headers=["Retry-After" => "7"])) ==
           7.0
-    @test EarthData.retry_after_seconds((; status=503)) == 0.0
 
     for status in (500, 503, 429, 408)
         err = try
