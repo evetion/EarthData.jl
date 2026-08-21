@@ -71,13 +71,19 @@ end
 
 Seconds the server asked us to wait, from `Retry-After`, or `0.0` when the header is absent
 or unparseable. Only the delta-seconds form is read; clamped to `retry_after_max`.
+
+Reads `response.headers` directly rather than going through `HTTP.header`, which only
+accepts an `HTTP.Messages.Message` — a `Downloads.Response` is a plain struct, and that is
+the shape `/s3credentials` fails with.
 """
 function retry_after_seconds(response)
-    raw = HTTP.header(response, "Retry-After", "")
-    isempty(strip(raw)) && return 0.0
-    seconds = tryparse(Float64, strip(raw))
-    isnothing(seconds) && return 0.0
-    return clamp(seconds, 0.0, retry_after_max)
+    for (name, value) in response.headers
+        lowercase(String(name)) == "retry-after" || continue
+        seconds = tryparse(Float64, strip(String(value)))
+        isnothing(seconds) && return 0.0
+        return clamp(seconds, 0.0, retry_after_max)
+    end
+    return 0.0
 end
 
 """

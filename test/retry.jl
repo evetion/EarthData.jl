@@ -117,6 +117,73 @@ end
         e
     end
     @test err.retry_after == 7.0
+
+    # `Downloads.Response` is not an `HTTP.Message`, and it is the shape `/s3credentials`
+    # fails with. Use the real struct rather than a NamedTuple stand-in, which supports
+    # accessors the struct does not and so passes where the real type would not.
+    downloads_response(status, headers) =
+        Downloads.Response("https", "https://example.test", status, "", headers)
+
+    @test EarthData.retry_after_seconds(
+        downloads_response(503, ["Retry-After" => "7"]),
+    ) == 7.0
+    # Header names are case-insensitive, and a DAAC does send lowercase.
+    @test EarthData.retry_after_seconds(
+        downloads_response(503, ["retry-after" => "3"]),
+    ) == 3.0
+    # A response carrying no headers falls back to the backoff curve.
+    @test EarthData.retry_after_seconds(
+        downloads_response(503, Pair{String,String}[]),
+    ) == 0.0
+
+    # A 5xx `Downloads.Response` must reach `with_retries` as retryable, which is the whole
+    # point: this is the shape `/s3credentials` fails with.
+    err = try
+        EarthData.check_response(downloads_response(503, ["Retry-After" => "5"]), "S3 credentials")
+        nothing
+    catch e
+        e
+    end
+    @test err isa EarthData.TransientError
+    @test EarthData.is_transient(err)
+    @test err.retry_after == 5.0
+
+    # NamedTuples must keep working — that is what the AWS extension passes.
+    @test EarthData.retry_after_seconds((; status=503, headers=["Retry-After" => "7"])) ==
+          7.0
+
+    for status in (500, 503, 429, 408)
+        err = try
+            EarthData.check_response(
+                (; status=status, body=codeunits("down"), headers=Pair{String,String}[]),
+                "S3 credentials",
+            )
+            nothing
+        catch e
+            e
+        end
+        @test err isa EarthData.TransientError
+        @test EarthData.is_transient(err)
+    end
+
+    # An HTML error page from an unauthenticated call is permanent, and says so rather than
+    # surfacing as a JSON parse error.
+    err = try
+        EarthData.check_response(
+            (;
+                status=401,
+                body=codeunits("<html>HTTP Basic: Access denied.</html>"),
+                headers=Pair{String,String}[],
+            ),
+            "S3 credentials",
+        )
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test !EarthData.is_transient(err)
+    @test occursin("S3 credentials", err.msg)
 end
 
 @testset "with_retries" begin

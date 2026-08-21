@@ -5,21 +5,63 @@ using AWSS3
 using JSON3
 using Dates
 using TimeZones
+import Downloads
 
-function EarthData.get_s3_credentials(daac="nsidc")
+function _fetch_s3_credentials(daac)
+    url = "https://data.$daac.earthdatacloud.nasa.gov/s3credentials"
+    # Declared outside so the closure's response survives `sprint`, which returns the body.
+    response = nothing
     body = sprint() do output
-        return EarthData._request(
-            "https://data.$daac.earthdatacloud.nasa.gov/s3credentials";
-            output=output,
+        response = Downloads.request(url; output=output)
+    end
+
+    # `Downloads.request` returns a `Response` for an HTTP error status rather than throwing
+    # (a transport fault does throw, as `RequestError`, and propagates), so an error status
+    # has to be read off the response.
+    #
+    # It will not always be one: without credentials, curl follows the redirect to the EDL
+    # login form and the *login page* answers 200, so an unauthenticated call arrives here as
+    # a successful HTML response. That case is caught by the JSON read below, which is why it
+    # names the URL rather than letting a bare parse error surface.
+    EarthData.check_response(
+        (; status=response.status, body=codeunits(body), headers=response.headers),
+        "S3 credentials",
+    )
+
+    credentials = try
+        JSON3.read(body)
+    catch
+        throw(
+            ArgumentError(
+                """
+                Could not read the S3 credentials response as JSON ($url).
+
+                $(EarthData.body_excerpt((; body=codeunits(body))))
+                """,
+            ),
         )
     end
-    body = JSON3.read(body)
+
     AWSS3.AWSCredentials(
-        body.accessKeyId,
-        body.secretAccessKey,
-        body.sessionToken,
-        expiry=DateTime(body.expiration, dateformat"y-m-d H:M:S+z"),
+        credentials.accessKeyId,
+        credentials.secretAccessKey,
+        credentials.sessionToken,
+        expiry=DateTime(credentials.expiration, dateformat"y-m-d H:M:S+z"),
     )
+end
+
+"""
+    get_s3_credentials(daac="nsidc") -> AWSS3.AWSCredentials
+
+Fetch temporary in-region S3 credentials from a DAAC's `/s3credentials` endpoint.
+
+Requires Earthdata Login credentials (see `netrc!`). Retries while the endpoint fails
+temporarily; a 401/403 is permanent and raises immediately.
+"""
+function EarthData.get_s3_credentials(daac="nsidc")
+    EarthData.with_retries(context="S3 credentials") do
+        _fetch_s3_credentials(daac)
+    end
 end
 
 function set_env!(creds::AWSS3.AWSCredentials, env=ENV)

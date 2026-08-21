@@ -21,38 +21,15 @@ function netrc!(username, password)
     fn
 end
 
-# Custom downloader for Julia 1.6 which doensn't have NETRC + Cookie support
-# This is a method because it will segfault if precompiled.
-function custom_downloader()
-    downloader = Downloads.Downloader()
-    easy_hook =
-        (easy, _) -> begin
-            Downloads.Curl.setopt(
-                easy,
-                Downloads.Curl.CURLOPT_NETRC,
-                Downloads.Curl.CURL_NETRC_OPTIONAL,
-            )
-            Downloads.Curl.setopt(easy, Downloads.Curl.CURLOPT_COOKIEFILE, "")
-        end
-    downloader.easy_hook = easy_hook
-    return downloader
-end
-
-function _download(kwargs...)
-    downloader = custom_downloader()
-    Downloads.download(kwargs...; downloader=downloader)
-end
-
-function _request(args...; kwargs...)
-    downloader = custom_downloader()
-    Downloads.request(args...; kwargs..., downloader=downloader)
-end
-
+# `Downloads` enables both `CURLOPT_NETRC` (optional) and session cookies by default —
+# JuliaLang/Downloads.jl#98, released in Downloads 1.5.0, and Julia 1.10 ships 1.6.0. The
+# `custom_downloader` that used to set exactly those two options was a restatement of the
+# default, so Earthdata's redirect-based auth works without a hook.
 function download(url::AbstractString, fn::AbstractString; kwargs...)
     if startswith(url, "s3:")
         s3download(url, fn)
     else
-        _download(url, fn; kwargs...)
+        Downloads.download(url, fn; kwargs...)
     end
 end
 
