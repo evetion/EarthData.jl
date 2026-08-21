@@ -21,6 +21,7 @@ include("show.jl")
 include("stub.jl")  # empty methods that are actually defined in extensions
 include("retry.jl")
 include("spatial.jl")
+include("temporal.jl")
 
 const world = Extent(X=(-180.0, 180.0), Y=(-90.0, 90.0))
 
@@ -349,8 +350,16 @@ function cmr_query(query::Dict; page_num, page_size)
     for (k, v) in query
         isnothing(v) && continue
         key = string(k)
-        # Spatial parameters also accept geometries; everything else is passed on as given.
-        q[key] = Symbol(key) in spatial_params ? cmr_spatial(Symbol(key), v) : v
+        # Spatial parameters also accept geometries and temporal ones dates; everything
+        # else is passed on as given.
+        sym = Symbol(key)
+        q[key] = if sym in spatial_params
+            cmr_spatial(sym, v)
+        elseif sym in temporal_params
+            cmr_temporal(sym, v)
+        else
+            v
+        end
     end
     return q
 end
