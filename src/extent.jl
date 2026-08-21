@@ -94,10 +94,12 @@ present only if the record supports it, so test with `haskey` before reading. Co
 no time dimension ignore `Ti`; `Rasters` warns when cropping a purely spatial raster with
 one, so pass only the keys you need.
 
+`Extents` is not re-exported, so reach it either with `using Extents` or, as here, through
+`EarthData.Extents`.
+
 ```jldoctest
-using Extents
 g = first(granules(short_name="GEDI02_A"))
-ext = Extents.extent(g);
+ext = EarthData.Extents.extent(g);
 haskey(ext, :X) && haskey(ext, :Ti)
 # output
 true
