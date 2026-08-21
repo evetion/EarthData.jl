@@ -452,14 +452,18 @@ const size_unit_factors = Dict(
 )
 
 """
-    size_unit_factor(unit) -> Int
+    size_unit_factor(unit) -> Union{Int,Nothing}
 
 Bytes per `unit`, for the `SizeUnit` values UMM allows (`"Bytes"`, `"KB"`, `"MB"`, `"GB"`,
 `"TB"`; binary multiples). Throws for an unrecognised unit rather than guessing, since a
 wrong factor silently misreports a size by three orders of magnitude.
+
+`"NA"` returns `nothing`: providers use it to say they recorded no unit, so the accompanying
+`Size` cannot be converted at all.
 """
 function size_unit_factor(unit::AbstractString)
     key = uppercase(strip(unit))
+    key == "NA" && return nothing
     haskey(size_unit_factors, key) ||
         throw(ArgumentError("Unrecognised UMM SizeUnit: $(repr(unit))"))
     return size_unit_factors[key]
@@ -475,7 +479,8 @@ Size of a granule in bytes, from `DataGranule.ArchiveAndDistributionInformation`
 `Size` is unit-less on its own, and providers do report units other than bytes, so reading
 the number without the unit is how a megabyte figure gets mistaken for a byte count. A
 record that gives `Size` with no `SizeUnit` is read as `default_unit`, which is what the
-DAACs mean in practice; pass `default_unit` explicitly if a provider differs.
+DAACs mean in practice; pass `default_unit` explicitly if a provider differs. A `SizeUnit`
+of `"NA"` is not a unit, so such an entry is skipped rather than guessed at.
 
 Sizes of multiple files are summed, since together they are the granule.
 """
@@ -490,8 +495,9 @@ function granule_size(granule::AbstractJSON; default_unit::AbstractString="MB")
         bytes = entry.SizeInBytes
         if isnothing(bytes)
             isnothing(entry.Size) && continue
-            unit = something(entry.SizeUnit, default_unit)
-            bytes = round(Int, entry.Size * size_unit_factor(unit))
+            factor = size_unit_factor(something(entry.SizeUnit, default_unit))
+            isnothing(factor) && continue
+            bytes = round(Int, entry.Size * factor)
         end
         total += bytes
         found = true
