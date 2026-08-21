@@ -7,6 +7,7 @@ include("show.jl")
 include("search.jl")
 include("retry.jl")
 include("spatial.jl")  # uses search.jl's fake requester
+include("extent.jl")
 include("auth.jl")
 
 # A pull request from a fork gets the workflow's `env:` keys, but with empty values —
