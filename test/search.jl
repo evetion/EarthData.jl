@@ -67,6 +67,21 @@ struct SizelessItem <: EarthData.AbstractJSON
     DataGranule::Nothing
 end
 
+# Enough of a granule to exercise `granule_size`'s unit handling directly.
+struct SizeEntry
+    Name::String
+    Size::Union{Nothing,Float64}
+    SizeUnit::Union{Nothing,String}
+    SizeInBytes::Union{Nothing,Int}
+end
+struct SizedDataGranule
+    ArchiveAndDistributionInformation::Vector{SizeEntry}
+end
+struct SizedItem <: EarthData.AbstractJSON
+    DataGranule::SizedDataGranule
+end
+sized_item(entries...) = SizedItem(SizedDataGranule(collect(entries)))
+
 function cmr_response(ids, concept_type; hits=length(ids))
     umm = concept_type == "granule" ? granule_umm : collection_umm
     JSON3.write(
@@ -293,6 +308,20 @@ end
     @test EarthData.size_unit_factor("GB") == 1024^3
     @test EarthData.size_unit_factor("TB") == 1024^4
     @test_throws ArgumentError EarthData.size_unit_factor("furlongs")
+
+    # ATL06 reports `Size` with `SizeUnit` "NA", which means the provider recorded no unit
+    # rather than that the number is bytes. It has no factor, so the entry is skipped.
+    @test EarthData.size_unit_factor("NA") === nothing
+    @test EarthData.granule_size(sized_item(SizeEntry("f.h5", 16.0, "NA", nothing))) ===
+          nothing
+
+    # A sibling entry that does carry a usable size still counts.
+    @test EarthData.granule_size(
+        sized_item(
+            SizeEntry("f.h5", 16.0, "NA", nothing),
+            SizeEntry("f.png", nothing, nothing, 2048),
+        ),
+    ) == 2048
 
     # A record with no size information reports nothing rather than zero, so a caller can
     # tell "not stated" from "empty".
