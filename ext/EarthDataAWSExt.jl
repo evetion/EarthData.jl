@@ -68,7 +68,8 @@ function set_env!(creds::AWSS3.AWSCredentials, env=ENV)
     env["AWS_ACCESS_KEY_ID"] = creds.access_key_id
     env["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
     env["AWS_SESSION_TOKEN"] = creds.token
-    env["AWS_SESSION_EXPIRES"] = creds.expiry
+    # `ENV` holds strings; assigning the `DateTime` itself raises a `MethodError`.
+    env["AWS_SESSION_EXPIRES"] = string(creds.expiry)
 end
 
 function EarthData.create_aws_config(daac="nsidc", region="us-west-2")
@@ -83,7 +84,7 @@ function EarthData.create_aws_config(daac="nsidc", region="us-west-2")
             get(ENV, "AWS_ACCESS_KEY_ID", ""),
             get(ENV, "AWS_SECRET_ACCESS_KEY", ""),
             get(ENV, "AWS_SESSION_TOKEN", ""),
-            expiration=DateTime(get(ENV, "AWS_SESSION_EXPIRES", typemin(DateTime))),
+            expiry=expiration,
         )
     end
 
