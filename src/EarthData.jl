@@ -30,8 +30,57 @@ const version = granule_version
 
 const granule_umm_json_version = replace(granule_version, "." => "_")
 const collection_umm_json_version = replace(collection_version, "." => "_")
-const granule_url = "https://cmr.earthdata.nasa.gov/search/granules.umm_json_$granule_umm_json_version"
-const collection_url = "https://cmr.earthdata.nasa.gov/search/collections.umm_json_$collection_umm_json_version"
+
+"""
+    System(; cmr_url, edl_host)
+
+An Earthdata deployment: [`PROD`](@ref) or [`UAT`](@ref).
+
+UAT is where NASA stages a collection before it goes public, so it is what a provider tests
+against. Pass one as `system` to [`granules`](@ref) or [`collections`](@ref).
+
+`cmr_url` is a base URL rather than a host, so a proxy or a local CMR can be reached by
+constructing a `System` directly. `edl_host` is a bare hostname, since that is what `.netrc`
+and curl match on.
+
+!!! note "Search only, for now"
+    Nothing reads `edl_host` yet — [`token_from_netrc`](@ref) and [`netrc_credentials`](@ref)
+    still target production. A UAT *search* works; UAT *authentication* does not, and a
+    production token rejected by UAT reports a production token page.
+"""
+Base.@kwdef struct System
+    cmr_url::String = "https://cmr.earthdata.nasa.gov"
+    edl_host::String = "urs.earthdata.nasa.gov"
+end
+
+"""
+    PROD
+
+The operational Earthdata deployment, and the default for every search.
+"""
+const PROD = System()
+
+"""
+    UAT
+
+Earthdata's user-acceptance-testing deployment, holding staged and pre-release collections.
+
+```julia
+granules(short_name="GEDI02_A", system=EarthData.UAT)
+```
+"""
+const UAT = System(
+    cmr_url="https://cmr.uat.earthdata.nasa.gov",
+    edl_host="uat.urs.earthdata.nasa.gov",
+)
+
+search_url(system::System, concept::AbstractString, umm_version::AbstractString) =
+    "$(system.cmr_url)/search/$(concept).umm_json_$(umm_version)"
+
+granule_url(system::System=PROD) =
+    search_url(system, "granules", granule_umm_json_version)
+collection_url(system::System=PROD) =
+    search_url(system, "collections", collection_umm_json_version)
 
 abstract type AbstractRequest end
 
@@ -225,6 +274,7 @@ function granules(;
     all=false,
     method=:POST,
     requester=HTTP.request,
+    system::System=PROD,
     kwargs...,
 )
     d = Dict(kwargs)
@@ -232,7 +282,7 @@ function granules(;
     isempty(uk) ||
         throw(ArgumentError("Unknown keyword argument(s): " * join(string.(uk), ", ")))
     request(
-        granule_url,
+        granule_url(system),
         Dict(zip(string.(keys(d)), values(d))),
         Granules.UMM_G;
         page_num,
@@ -257,6 +307,7 @@ function collections(;
     all=false,
     method=:POST,
     requester=HTTP.request,
+    system::System=PROD,
     kwargs...,
 )
     d = Dict(kwargs)
@@ -264,7 +315,7 @@ function collections(;
     isempty(uk) ||
         throw(ArgumentError("Unknown keyword argument(s): " * join(string.(uk), ", ")))
     request(
-        collection_url,
+        collection_url(system),
         Dict(zip(string.(keys(d)), values(d))),
         Collections.UMM_C;
         page_num,

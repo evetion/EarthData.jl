@@ -241,7 +241,7 @@ end
     @test result isa Vector{EarthData.Collections.UMM_C}
     @test only(result).ShortName == "C1"
     @test only(result).MetadataDates[1].Date === nothing
-    @test requests[1].url == EarthData.collection_url
+    @test requests[1].url == EarthData.collection_url()
     @test occursin("short_name=C1", requests[1].body)
     @test_throws ArgumentError EarthData.collections(not_a_cmr_keyword=1)
 end
