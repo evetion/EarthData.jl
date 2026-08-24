@@ -28,6 +28,80 @@ rectangle(west, east, south, north) = Dict(
 
 const G = EarthData.Granules
 
+@testset "Record equality" begin
+    # A record is its fields, so two parsed from the same JSON describe the same thing. The
+    # default compares a struct holding a `Vector` by that vector's identity, which would make
+    # rings with identical coordinates differ.
+    points() = [G.PointType(-10.0, 0.0), G.PointType(5.0, 0.0), G.PointType(5.0, 10.0)]
+    @test G.PointType(1.0, 2.0) == G.PointType(1.0, 2.0)
+    @test G.BoundaryType(points()) == G.BoundaryType(points())
+    # Winding matters to CMR, so a reversed ring is a different boundary.
+    @test G.BoundaryType(points()) != G.BoundaryType(reverse(points()))
+    @test G.GPolygonType(nothing, G.BoundaryType(points())) ==
+          G.GPolygonType(nothing, G.BoundaryType(points()))
+
+    # `hash` has to agree with `==`, or equal records collide as `Dict` keys and `Set` keeps
+    # duplicates.
+    a, b = G.BoundaryType(points()), G.BoundaryType(points())
+    @test hash(a) == hash(b)
+    @test length(Set([a, b])) == 1
+    @test Dict(a => 1)[b] == 1
+    @test isequal(a, b)
+
+    # Different types with the same field values are still different records.
+    @test G.PointType(1.0, 2.0) != G.BoundingRectangleType(1.0, 2.0, 3.0, 4.0)
+end
+
+@testset "GeoInterface conformance" begin
+    # GeoInterface's own conformance check, which exercises isgeometry, geomtrait, ncoord,
+    # ngeom, getgeom and getcoord — including the two-argument forms a consumer calls — and
+    # walks into each subgeometry.
+    ring = G.BoundaryType([
+        G.PointType(-10.0, 0.0),
+        G.PointType(5.0, 0.0),
+        G.PointType(5.0, 10.0),
+        G.PointType(-10.0, 0.0),
+    ])
+    rect = G.BoundingRectangleType(60.0, -51.0, -49.0, 40.0)
+    @test GI.testgeometry(G.PointType(3.0, 4.0))
+    @test GI.testgeometry(G.LineType([G.PointType(0.0, 0.0), G.PointType(2.0, -3.0)]))
+    @test GI.testgeometry(ring)
+    @test GI.testgeometry(G.GPolygonType(nothing, ring))
+    @test GI.testgeometry(rect)
+    @test GI.testgeometry(G.GeometryType([rect], nothing, [G.PointType(30.0, 40.0)], nothing))
+
+    # Collections generates field-identical structs, so the same union serves both.
+    C = EarthData.Collections
+    @test GI.testgeometry(C.PointType(3.0, 4.0))
+    @test GI.testgeometry(C.BoundingRectangleType(60.0, -51.0, -49.0, 40.0))
+
+    # A rectangle is a polygon with one closed ring, and its corners are that ring's points.
+    @test GI.ngeom(rect) == 1
+    @test GI.nring(rect) == 1
+    @test GI.trait(GI.getgeom(rect, 1)) isa GI.LinearRingTrait
+    @test length(collect(GI.getpoint(rect))) == 5
+    @test GI.ncoord(rect) == 2
+
+    # A collection indexes across the four fields in order, so an index has to carry past the
+    # collections before the one holding it rather than restart at each.
+    mixed = G.GeometryType(
+        [rect, G.BoundingRectangleType(1.0, 2.0, 3.0, 4.0)],
+        [G.GPolygonType(nothing, ring)],
+        [G.PointType(30.0, 40.0)],
+        [G.LineType([G.PointType(0.0, 0.0), G.PointType(2.0, -3.0)])],
+    )
+    @test GI.ngeom(mixed) == 5
+    @test GI.getgeom(mixed, 2) == G.BoundingRectangleType(1.0, 2.0, 3.0, 4.0)
+    @test GI.trait(GI.getgeom(mixed, 3)) isa GI.PolygonTrait
+    @test GI.trait(GI.getgeom(mixed, 4)) isa GI.PointTrait
+    @test GI.trait(GI.getgeom(mixed, 5)) isa GI.LineStringTrait
+    @test_throws BoundsError GI.getgeom(mixed, 6)
+
+    # An absent collection contributes nothing, so indexing skips straight past it.
+    @test GI.trait(GI.getgeom(G.GeometryType(nothing, nothing, [G.PointType(1.0, 2.0)], nothing), 1)) isa
+          GI.PointTrait
+end
+
 @testset "UMM geometry traits" begin
     # Every UMM geometry is a geometry, so anything taking GeoInterface accepts one.
     rect = G.BoundingRectangleType(60.0, -51.0, -49.0, 40.0)
