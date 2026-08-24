@@ -68,7 +68,8 @@ function set_env!(creds::AWSS3.AWSCredentials, env=ENV)
     env["AWS_ACCESS_KEY_ID"] = creds.access_key_id
     env["AWS_SECRET_ACCESS_KEY"] = creds.secret_key
     env["AWS_SESSION_TOKEN"] = creds.token
-    # `ENV` holds strings; assigning the `DateTime` itself raises a `MethodError`.
+    # `env` is any string dictionary, not just `ENV`: a `Dict{String,String}` stores the
+    # expiry only once formatted, where `ENV` would convert it on assignment.
     env["AWS_SESSION_EXPIRES"] = string(creds.expiry)
 end
 

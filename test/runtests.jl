@@ -54,8 +54,8 @@ end
             @test !isnothing(Base.get_extension(EarthData, :EarthDataAWSExt))
 
             # The warm-cache branch reuses unexpired credentials from the environment.
-            # `ENV` only takes strings, and the expiry keyword is `expiry`, not
-            # `expiration` — either mistake made this branch raise instead of run.
+            # `AWSCredentials` names its keyword `expiry` and absorbs no others, so the
+            # branch raised instead of running.
             ext = Base.get_extension(EarthData, :EarthDataAWSExt)
             env = Dict{String,String}()
             creds = AWSS3.AWSCredentials("id", "secret", "token"; expiry=DateTime(2030))
