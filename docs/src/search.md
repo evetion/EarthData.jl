@@ -128,13 +128,14 @@ other — it can go straight into `GeometryOps`, `Rasters.crop`, or another sear
 gg = granules(short_name="MCD43A3", version="061", polygon=first(g.SpatialExtent.HorizontalSpatialDomain.Geometry.GPolygons))
 ```
 
-Going the other way, an extent becomes a bounding rectangle, which is how coverage computed
-elsewhere reaches a search:
+An extent goes straight to `bounding_box`, so coverage computed elsewhere needs no conversion:
 
 ```julia
-rect = EarthData.Granules.BoundingRectangleType(Extents.extent(raster))
-gg = granules(short_name="MCD43A3", version="061", bounding_box=rect)
+gg = granules(short_name="MCD43A3", version="061", bounding_box=Extents.extent(raster))
 ```
+
+`BoundingRectangleType(extent)` builds the UMM record itself, for when a rectangle is what you
+want rather than a search parameter.
 
 ## Collections
 
