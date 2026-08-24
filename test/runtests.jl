@@ -1,6 +1,7 @@
 using EarthData
 using Test
 using Documenter
+using Dates
 
 include("schema_modules.jl")
 include("show.jl")
@@ -52,6 +53,27 @@ end
             @test isnothing(Base.get_extension(EarthData, :EarthDataAWSExt))
             using AWSS3
             @test !isnothing(Base.get_extension(EarthData, :EarthDataAWSExt))
+
+            # The warm-cache branch reuses unexpired credentials from the environment.
+            # `AWSCredentials` names its keyword `expiry` and absorbs no others, so the
+            # branch raised instead of running.
+            ext = Base.get_extension(EarthData, :EarthDataAWSExt)
+            env = Dict{String,String}()
+            creds = AWSS3.AWSCredentials("id", "secret", "token"; expiry=DateTime(2030))
+            ext.set_env!(creds, env)
+            @test env["AWS_SESSION_EXPIRES"] == "2030-01-01T00:00:00"
+            @test DateTime(env["AWS_SESSION_EXPIRES"]) == DateTime(2030)
+
+            withenv(
+                "AWS_ACCESS_KEY_ID" => "cached-id",
+                "AWS_SECRET_ACCESS_KEY" => "cached-secret",
+                "AWS_SESSION_TOKEN" => "cached-token",
+                "AWS_SESSION_EXPIRES" => string(DateTime(2030)),
+            ) do
+                config = EarthData.create_aws_config()
+                @test config.credentials.access_key_id == "cached-id"
+                @test config.credentials.expiry == DateTime(2030)
+            end
 
             # Test we can retrieve non-empty AWS credentials. The DAAC requires Earthdata
             # Login, so this half only runs where the credentials exist.
