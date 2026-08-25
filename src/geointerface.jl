@@ -106,19 +106,43 @@ function nth_geometry(fields::Tuple, i::Integer)
     throw(BoundsError(fields, i))
 end
 
-# Which module's structs to build, so a granule's rectangle yields granule points.
-pointtype(::Granules.BoundingRectangleType) = Granules.PointType
-pointtype(::Collections.BoundingRectangleType) = Collections.PointType
-boundarytype(::Granules.BoundingRectangleType) = Granules.BoundaryType
-boundarytype(::Collections.BoundingRectangleType) = Collections.BoundaryType
+# Which module's structs to build, so a granule's geometry yields granule parts. One `Union`
+# per module rather than a method per geometry: the module is the only thing being decided,
+# and `GeoInterface.convert` is handed a type while the trait methods hold an instance.
+const GranulesGeometry = Union{
+    Granules.PointType,
+    Granules.LineType,
+    Granules.BoundaryType,
+    Granules.GPolygonType,
+    Granules.BoundingRectangleType,
+    Granules.GeometryType,
+}
+const CollectionsGeometry = Union{
+    Collections.PointType,
+    Collections.LineType,
+    Collections.BoundaryType,
+    Collections.GPolygonType,
+    Collections.BoundingRectangleType,
+    Collections.GeometryType,
+}
+
+pointtype(::Type{<:GranulesGeometry}) = Granules.PointType
+pointtype(::Type{<:CollectionsGeometry}) = Collections.PointType
+boundarytype(::Type{<:GranulesGeometry}) = Granules.BoundaryType
+boundarytype(::Type{<:CollectionsGeometry}) = Collections.BoundaryType
+exclusivezonetype(::Type{<:GranulesGeometry}) = Granules.ExclusiveZoneType
+exclusivezonetype(::Type{<:CollectionsGeometry}) = Collections.ExclusiveZoneType
+
+pointtype(g::AbstractJSON) = pointtype(typeof(g))
+boundarytype(g::AbstractJSON) = boundarytype(typeof(g))
 
 """
     BoundingRectangleType(extent::Extents.Extent)
 
 A UMM bounding rectangle covering `extent`, which needs `X` and `Y`.
 
-This is how an extent from elsewhere reaches a search: `Extents.extent(raster)` gives `X`/`Y`
-that CMR cannot read, and a rectangle is a geometry [`granules`](@ref) accepts.
+`GeoInterface.convert(BoundingRectangleType, geom)` does the same for any GeoInterface
+rectangle, not just an `Extent`.
 
 ```jldoctest
 extent = EarthData.Extents.Extent(X=(-51.0, -49.0), Y=(40.0, 60.0))
@@ -133,6 +157,47 @@ Granules.BoundingRectangleType(extent::Extents.Extent) =
 
 Collections.BoundingRectangleType(extent::Extents.Extent) =
     rectangle_from_extent(Collections.BoundingRectangleType, extent)
+
+# Building a UMM rectangle from any GeoInterface rectangle, which is how coverage computed
+# elsewhere becomes a record: `GeoInterface.convert` dispatches on the trait, so this covers
+# every package's rectangle rather than `Extents.Extent` alone.
+GeoInterface.convert(
+    ::Type{R},
+    ::GeoInterface.RectangleTrait,
+    geom,
+) where {R<:UMMRectangle} = rectangle_from_extent(R, GeoInterface.extent(geom))
+
+# The remaining geometries, so `convert` serves every type the traits cover rather than only
+# rectangles.
+GeoInterface.convert(::Type{P}, ::GeoInterface.PointTrait, geom) where {P<:UMMPoint} =
+    P(GeoInterface.x(geom), GeoInterface.y(geom))
+
+GeoInterface.convert(::Type{L}, ::GeoInterface.LineStringTrait, geom) where {L<:UMMLine} =
+    L(umm_points(L, geom))
+
+GeoInterface.convert(
+    ::Type{B},
+    ::Union{GeoInterface.LinearRingTrait,GeoInterface.LineStringTrait},
+    geom,
+) where {B<:UMMBoundary} = B(umm_points(B, geom))
+
+# The points of `geom` as the module's own `PointType`, which is what a line or a boundary
+# holds.
+umm_points(::Type{T}, geom) where {T} =
+    [GeoInterface.convert(pointtype(T), p) for p in GeoInterface.getpoint(geom)]
+
+# UMM stores a polygon's holes as an `ExclusiveZone`, so a hole-less polygon has none.
+function GeoInterface.convert(
+    ::Type{P},
+    ::GeoInterface.PolygonTrait,
+    geom,
+) where {P<:UMMPolygon}
+    B = boundarytype(P)
+    exterior = GeoInterface.convert(B, GeoInterface.getexterior(geom))
+    holes = [GeoInterface.convert(B, h) for h in GeoInterface.gethole(geom)]
+    zone = isempty(holes) ? nothing : exclusivezonetype(P)(holes)
+    return P(zone, exterior)
+end
 
 # The fields are declared (North, West, East, South), so the mapping from an extent lives
 # here once: writing it per module is how one of them ends up transposed.
@@ -166,7 +231,7 @@ true
 ```
 """
 function Extents.extent(record::Union{Granules.UMM_G,Collections.UMM_C})
-    geometry = @something umm_geometry(record) return nothing
+    geometry = @something GeoInterface.geometry(record) return nothing
     return Extents.extent(geometry)
 end
 
@@ -218,8 +283,21 @@ function points_extent(points)
     return acc
 end
 
-# The geometry a record carries, or `nothing` if any level of the nesting is absent.
-function umm_geometry(record)
+"""
+    GeoInterface.geometry(record) -> Union{GeometryType,Nothing}
+
+The geometry a granule or collection carries, or `nothing` when the record states no
+coverage — reaching through `SpatialExtent.HorizontalSpatialDomain.Geometry` so a caller
+need not.
+
+```jldoctest
+g = first(granules(short_name="GEDI02_A"))
+EarthData.GeoInterface.trait(EarthData.GeoInterface.geometry(g))
+# output
+GeoInterface.GeometryCollectionTrait()
+```
+"""
+function GeoInterface.geometry(record::Union{Granules.UMM_G,Collections.UMM_C})
     spatial = @something record.SpatialExtent return nothing
     horizontal = @something spatial.HorizontalSpatialDomain return nothing
     return horizontal.Geometry
