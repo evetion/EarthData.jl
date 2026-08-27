@@ -48,34 +48,66 @@ cmr_spatial(::Symbol, ::Nothing) = nothing
 
 # A vector of numbers is the coordinate list itself; a vector of anything else is a repeated
 # parameter, which CMR reads as the union.
-cmr_spatial(::Symbol, value::AbstractVector{<:Real}) = join_coords(value)
+cmr_spatial(param::Symbol, value::AbstractVector{<:Real}) =
+    join_coords(check_coords(param, value))
 
 cmr_spatial(param::Symbol, value::AbstractVector) =
     [cmr_spatial(param, v) for v in value]
 
 # Tuples are resolved before the trait, because GeoInterface reads *any* numeric tuple as a
 # `PointTrait` — including `circle`'s `(lon, lat, radius_m)`, which is not a 3D point.
-
-# `circle` is the one parameter with no matching geometry, since a radius is not part of any
-# GeoInterface trait: it takes a centre plus a radius in metres. Arity is per-parameter — a
-# 3-tuple is a circle but not a point — so it stays part of the check rather than being
-# absorbed into `NTuple{N,Real}` for every parameter.
-function cmr_spatial(param::Symbol, value::NTuple{N,Real}) where {N}
-    if param === :circle
-        N == 3 || throw(
-            ArgumentError(
-                "`circle` takes (lon, lat, radius_m) or (point, radius_m); got $(N) values.",
-            ),
-        )
-    elseif param === :point
-        N == 2 || throw(ArgumentError("`point` takes (lon, lat); got $(N) values."))
-    end
-    return join_coords(value)
-end
+cmr_spatial(param::Symbol, value::NTuple{N,Real}) where {N} =
+    join_coords(check_coords(param, value))
 
 cmr_spatial(param::Symbol, value::Tuple{Any,Real}) =
     param === :circle ? circle_string(value...) :
     throw(ArgumentError("`$(param)` does not take (point, radius_m); use `circle`."))
+
+"""
+    check_coords(param::Symbol, coords)
+
+Check that `coords` has as many values as `param` takes, returning it unchanged.
+
+CMR answers a wrong count with an error naming its own parameter rather than the keyword, and
+`polygon` is worse: given a ring it cannot close it reads the coordinates it did get, so a
+truncated one silently searches a different area. The counts are per-parameter — a 3-tuple is
+a `circle` but not a `point` — so a bare coordinate list is checked against the parameter it
+was passed to.
+"""
+function check_coords(param::Symbol, coords)
+    n = length(coords)
+    if param === :bounding_box
+        n == 4 || throw(
+            ArgumentError("`bounding_box` takes (west, south, east, north); got $(n) values."),
+        )
+    elseif param === :point
+        n == 2 || throw(ArgumentError("`point` takes (lon, lat); got $(n) values."))
+    elseif param === :circle
+        n == 3 || throw(
+            ArgumentError(
+                "`circle` takes (lon, lat, radius_m) or (point, radius_m); got $(n) values.",
+            ),
+        )
+    elseif param === :line
+        # A line is a coordinate pair per vertex, and two vertices are the fewest that span
+        # any distance.
+        (iseven(n) && n >= 4) || throw(
+            ArgumentError(
+                "`line` takes lon,lat per vertex, at least two vertices; got $(n) values.",
+            ),
+        )
+    elseif param === :polygon
+        # CMR needs the ring closed, so the first and last vertex repeat: a triangle is four
+        # vertices, eight values.
+        (iseven(n) && n >= 8) || throw(
+            ArgumentError(
+                "`polygon` takes lon,lat per vertex of a closed ring, so at least four " *
+                "vertices with the first repeated last; got $(n) values.",
+            ),
+        )
+    end
+    return coords
+end
 
 cmr_spatial(param::Symbol, value::Tuple) = throw(
     ArgumentError(

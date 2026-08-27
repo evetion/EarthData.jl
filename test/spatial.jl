@@ -116,6 +116,35 @@ const ccw_ring = "-49,66,-49,68,-51,68,-51,66,-49,66"
             GIW.MultiPoint([(-50.0, 67.0), (-40.0, 60.0)]),
         )
     end
+
+    @testset "coordinate counts" begin
+        # A bare coordinate list is checked against the parameter it was passed to, since CMR
+        # reports a wrong count against its own parameter name rather than the keyword — and
+        # for `polygon` does not report it at all, reading a short ring as a smaller area.
+        @test_throws "west, south, east, north" EarthData.cmr_spatial(:bounding_box, (1, 2))
+        @test_throws "west, south, east, north" EarthData.cmr_spatial(
+            :bounding_box,
+            (1, 2, 3, 4, 5),
+        )
+        # Both spellings of a coordinate list reach the same check.
+        @test_throws "west, south, east, north" EarthData.cmr_spatial(:bounding_box, [1, 2])
+        @test_throws "(lon, lat)" EarthData.cmr_spatial(:point, [1, 2, 3])
+
+        # A line needs a pair per vertex and at least two vertices to span any distance.
+        @test_throws "at least two vertices" EarthData.cmr_spatial(:line, (1, 2, 3))
+        @test_throws "at least two vertices" EarthData.cmr_spatial(:line, (1, 2))
+        @test EarthData.cmr_spatial(:line, (0, 0, 2, -3)) == "0,0,2,-3"
+
+        # A polygon ring is closed, so its first vertex repeats as its last: a triangle is
+        # four vertices, eight values.
+        @test_throws "first repeated last" EarthData.cmr_spatial(:polygon, (1, 2, 3, 4))
+        @test EarthData.cmr_spatial(:polygon, (0, 0, 1, 0, 1, 1, 0, 0)) == "0,0,1,0,1,1,0,0"
+
+        # The counts are per-parameter: three values are a circle but not a point.
+        @test EarthData.cmr_spatial(:circle, (-50.0, 67.0, 1000)) == "-50,67,1000"
+        @test EarthData.cmr_spatial(:bounding_box, (-51.0, 66.0, -49.0, 68.0)) ==
+              "-51,66,-49,68"
+    end
 end
 
 @testset "Geometry in a granule search" begin
