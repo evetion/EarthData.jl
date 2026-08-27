@@ -342,3 +342,63 @@ end
         G.GPolygonType(G.ExclusiveZoneType([hole]), ring),
     )
 end
+
+@testset "Records as features" begin
+    # A record pairs coverage with the rest of what CMR knows, which is what a feature is.
+    granule = extent_granule(
+        Dict("BoundingRectangles" => [rectangle(-51.0, -49.0, 40.0, 60.0)]),
+    )
+    @test GI.isfeature(granule)
+    @test GI.trait(granule) isa GI.FeatureTrait
+    # A feature is not itself a geometry, so `geomtrait` stays `nothing` while `geometry`
+    # returns the collection the record carries.
+    @test isnothing(GI.geomtrait(granule))
+    @test GI.trait(GI.geometry(granule)) isa GI.GeometryCollectionTrait
+    @test GI.testfeature(granule)
+
+    # `SpatialExtent` is the geometry, so it is not repeated in the properties.
+    props = GI.properties(granule)
+    @test :SpatialExtent ∉ keys(props)
+    @test props.GranuleUR == "G1"
+    @test length(keys(props)) == length(fieldnames(typeof(granule))) - 1
+
+    # A record with no coverage is still a feature, just one with no geometry.
+    bare = JSON3.read(
+        JSON3.write(
+            Dict{String,Any}(
+                "GranuleUR" => "G2",
+                "CollectionReference" => Dict("ShortName" => "T", "Version" => "1"),
+                "MetadataSpecification" => Dict(
+                    "URL" => "https://example.test",
+                    "Version" => "1.6.6",
+                    "Name" => "UMM-G",
+                ),
+                "ProviderDates" =>
+                    [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
+            ),
+        ),
+        EarthData.Granules.UMM_G,
+    )
+    @test GI.testfeature(bare)
+    @test isnothing(GI.geometry(bare))
+end
+
+@testset "Results as a feature collection" begin
+    # A search returns a plain `Vector`, so the collection is keyed on the element type.
+    records = [
+        extent_granule(Dict("BoundingRectangles" => [rectangle(-51.0, -49.0, 40.0, 60.0)])),
+        extent_granule(Dict("Points" => [point(30.0, 40.0)])),
+    ]
+    @test GI.isfeaturecollection(records)
+    @test GI.trait(records) isa GI.FeatureCollectionTrait
+    @test GI.nfeature(records) == 2
+    @test GI.trait(GI.getfeature(records, 1)) isa GI.FeatureTrait
+    @test GI.testfeaturecollection(records)
+
+    # The collection's extent encloses every record that states one.
+    @test GI.extent(records) == Extent(X=(-51.0, 30.0), Y=(40.0, 60.0))
+
+    # An empty result has no extent rather than a zero-width one at the origin.
+    @test isnothing(Extents.extent(EarthData.Granules.UMM_G[]))
+    @test GI.nfeature(EarthData.Granules.UMM_G[]) == 0
+end

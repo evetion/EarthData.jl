@@ -18,6 +18,7 @@ const UMMRectangle =
     Union{Granules.BoundingRectangleType,Collections.BoundingRectangleType}
 const UMMPolygon = Union{Granules.GPolygonType,Collections.GPolygonType}
 const UMMGeometry = Union{Granules.GeometryType,Collections.GeometryType}
+const UMMRecord = Union{Granules.UMM_G,Collections.UMM_C}
 
 GeoInterface.isgeometry(::Type{<:UMMPoint}) = true
 GeoInterface.geomtrait(::UMMPoint) = GeoInterface.PointTrait()
@@ -212,7 +213,7 @@ function rectangle_from_extent(::Type{R}, extent::Extents.Extent) where {R<:UMMR
 end
 
 """
-    Extents.extent(record::Union{Granules.UMM_G,Collections.UMM_C}) -> Union{Extent,Nothing}
+    Extents.extent(record::UMMRecord) -> Union{Extent,Nothing}
 
 The record's spatial extent in degrees, or `nothing` when it states no coverage.
 
@@ -230,7 +231,7 @@ haskey(ext, :X) && haskey(ext, :Y)
 true
 ```
 """
-function Extents.extent(record::Union{Granules.UMM_G,Collections.UMM_C})
+function Extents.extent(record::UMMRecord)
     geometry = @something GeoInterface.geometry(record) return nothing
     return Extents.extent(geometry)
 end
@@ -297,8 +298,59 @@ EarthData.GeoInterface.trait(EarthData.GeoInterface.geometry(g))
 GeoInterface.GeometryCollectionTrait()
 ```
 """
-function GeoInterface.geometry(record::Union{Granules.UMM_G,Collections.UMM_C})
+function GeoInterface.geometry(record::UMMRecord)
     spatial = @something record.SpatialExtent return nothing
     horizontal = @something spatial.HorizontalSpatialDomain return nothing
     return horizontal.Geometry
+end
+
+# A record pairs coverage with everything else CMR knows about it, which is what a feature is.
+# `GeoInterface.geometry` above is the geometry half, so only the properties half is new.
+GeoInterface.isfeature(::Type{<:UMMRecord}) = true
+GeoInterface.trait(::UMMRecord) = GeoInterface.FeatureTrait()
+
+"""
+    GeoInterface.properties(record) -> NamedTuple
+
+Everything the record states apart from its coverage, so a granule reads as a row beside the
+geometry [`GeoInterface.geometry`](@ref) returns.
+
+`SpatialExtent` is left out because it *is* the geometry: including it would write the
+coordinates twice. That is what GeoInterface's own `NamedTuple` features, GeoDataFrames and
+ArchGDAL all do.
+"""
+function GeoInterface.properties(record::UMMRecord)
+    names = filter(!=(:SpatialExtent), fieldnames(typeof(record)))
+    return NamedTuple{names}(map(name -> getfield(record, name), names))
+end
+
+# A search returns a plain `Vector`, so the collection is keyed on the element type — the same
+# way GeoInterface treats an `AbstractArray` of `NamedTuple` features.
+const UMMRecords = AbstractVector{<:UMMRecord}
+
+GeoInterface.isfeaturecollection(::Type{<:UMMRecords}) = true
+GeoInterface.trait(::UMMRecords) = GeoInterface.FeatureCollectionTrait()
+GeoInterface.nfeature(::GeoInterface.FeatureCollectionTrait, records::UMMRecords) =
+    length(records)
+GeoInterface.getfeature(
+    ::GeoInterface.FeatureCollectionTrait,
+    records::UMMRecords,
+    i::Integer,
+) = records[i]
+
+# The extent of every record that states one, so a result whose records state no coverage gives
+# `nothing`. Reach it through `Extents.extent` for an empty result: `GeoInterface.extent` reads
+# a `nothing` as "no method defined" and falls back to `calc_extent`, which reduces without an
+# `init` and so raises on an empty collection.
+GeoInterface.extent(::GeoInterface.FeatureCollectionTrait, records::UMMRecords) =
+    Extents.extent(records)
+
+function Extents.extent(records::UMMRecords)
+    acc = nothing
+    for record in records
+        ext = Extents.extent(record)
+        isnothing(ext) && continue
+        acc = isnothing(acc) ? ext : Extents.union(acc, ext)
+    end
+    return acc
 end
