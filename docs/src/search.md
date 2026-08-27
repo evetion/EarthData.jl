@@ -88,6 +88,28 @@ gg = granules(short_name="MCD43A3", version="061", point=[(-50.0, 67.0), (-40.0,
 
 Strings are still passed to CMR unchanged.
 
+### Dates
+
+The date-valued parameters — `temporal` among them — take a `Date` or `DateTime` as well as
+the ISO 8601 string CMR expects, so the formatting is handled for you:
+
+```julia
+using Dates
+
+gg = granules(short_name="GEDI02_A", temporal=Date(2019, 4, 18))
+```
+
+A tuple is a range, and either side may be `nothing` for an open bound:
+
+```julia
+granules(short_name="GEDI02_A", temporal=(Date(2019, 4, 18), Date(2019, 5, 1)))
+granules(short_name="GEDI02_A", temporal=(Date(2019, 4, 18), nothing))   # everything since
+granules(short_name="GEDI02_A", temporal=(nothing, Date(2019, 5, 1)))    # everything until
+```
+
+A `Date` is taken as midnight UTC and a `DateTime` as already being UTC, since CMR has no way
+to read a local offset. Strings are passed through unchanged.
+
 ## Collections
 
 `collections` searches collection metadata and returns
