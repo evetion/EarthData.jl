@@ -1,5 +1,21 @@
+using Dates
+using Extents
 using HTTP
 using JSON3
+import GeoInterface as GI
+
+# A rectangle that counts how many times its extent is read, so a test can assert conversion
+# happened once rather than once per page.
+struct CountingGeometry
+    extent::Extent
+    count::Ref{Int}
+end
+GI.isgeometry(::Type{CountingGeometry}) = true
+GI.geomtrait(::CountingGeometry) = GI.RectangleTrait()
+function GI.extent(::GI.RectangleTrait, g::CountingGeometry)
+    g.count[] += 1
+    return g.extent
+end
 
 function cmr_meta(id, concept_type)
     Dict(
@@ -370,4 +386,112 @@ end
     @test occursin("-c", command_string)
     @test occursin("-d", command_string)
     @test occursin(folder, command_string)
+end
+
+@testset "Typed requests" begin
+    # Conversion happens when the request is built, so a field holds what will be sent.
+    @test EarthData.GranuleRequest(
+        bounding_box=Extent(X=(-51.0, -49.0), Y=(66.0, 68.0)),
+    ).bounding_box == "-51,66,-49,68"
+    @test EarthData.GranuleRequest(temporal=Date(2019, 4, 18)).temporal ==
+          "2019-04-18T00:00:00Z"
+    @test EarthData.GranuleRequest(temporal=(Date(2019, 4, 18), nothing)).temporal ==
+          "2019-04-18T00:00:00Z,"
+
+    # A string is what CMR takes, so it survives verbatim rather than being reformatted.
+    @test EarthData.GranuleRequest(bounding_box="-51.0,66.0,-49.0,68.0").bounding_box ==
+          "-51.0,66.0,-49.0,68.0"
+
+    # A number or a boolean reaches CMR as text either way, so a field holds the text and no
+    # field has to be typed `Any`. What goes on the wire is unchanged.
+    @test EarthData.GranuleRequest(downloadable=true).downloadable == "true"
+    @test EarthData.GranuleRequest(cloud_cover=5).cloud_cover == "5"
+    @test EarthData.GranuleRequest(sort_key=["-start_date"]).sort_key == ["-start_date"]
+    @test EarthData.GranuleRequest(cloud_cover="0,20").cloud_cover == "0,20"
+
+    # A vector of geometries is a repeated parameter, which CMR reads as their union.
+    @test EarthData.GranuleRequest(point=[(-50.0, 67.0), (-40.0, 60.0)]).point ==
+          ["-50,67", "-40,60"]
+
+    # `fieldnames` is how the accepted keywords are documented, and the two endpoints do not
+    # accept the same ones: `production_date` is granule-only, `has_granules_created_at`
+    # collection-only. Conversion follows the field list, so each struct converts its own.
+    @test :bounding_box in fieldnames(EarthData.GranuleRequest)
+    @test :production_date in fieldnames(EarthData.GranuleRequest)
+    @test :has_granules_created_at ∉ fieldnames(EarthData.GranuleRequest)
+    @test :has_granules_created_at in fieldnames(EarthData.CollectionRequest)
+    @test :production_date ∉ fieldnames(EarthData.CollectionRequest)
+    @test EarthData.CollectionRequest(
+        has_granules_created_at=Date(2019, 4, 18),
+    ).has_granules_created_at == "2019-04-18T00:00:00Z"
+
+    # A value CMR cannot be sent fails when the request is built, naming the parameter,
+    # rather than as a MethodError from inside the HTTP layer once a search is under way.
+    @test_throws ArgumentError EarthData.GranuleRequest(temporal=2019)
+    @test_throws "cannot send a Nothing to CMR" EarthData.GranuleRequest(
+        temporal=[Date(2019, 1, 1), nothing],
+    )
+
+    # A request that constrains nothing sends nothing, rather than a parameter per field.
+    @test EarthData.GranuleRequest() isa EarthData.GranuleRequest
+    @test isempty(EarthData.cmr_dict(EarthData.GranuleRequest()))
+
+    # Parameters that apply to any search are not fields of either request struct, so they
+    # ride alongside rather than through the constructor.
+    query = EarthData.cmr_query_params(EarthData.GranuleRequest; short_name="T", token="abc")
+    @test query["short_name"] == "T"
+    @test query["token"] == "abc"
+    # They are not converted either, so a numeric one stays a number: the merged dictionary
+    # holds both, which is why it cannot be narrowed to what a request field holds.
+    numbered = EarthData.cmr_query_params(
+        EarthData.GranuleRequest;
+        short_name="T",
+        page_size=25,
+        pretty=true,
+    )
+    @test numbered["page_size"] === 25
+    @test numbered["pretty"] === true
+
+    # A keyword belonging to neither is an error: CMR ignores what it does not recognise, so
+    # a typo would otherwise widen the search instead of failing.
+    @test_throws ArgumentError EarthData.cmr_query_params(
+        EarthData.GranuleRequest;
+        not_a_cmr_keyword=1,
+    )
+    # ...including a keyword the *other* endpoint accepts.
+    @test_throws ArgumentError EarthData.cmr_query_params(
+        EarthData.CollectionRequest;
+        production_date=Date(2019, 1, 1),
+    )
+end
+
+@testset "Conversion runs once per search" begin
+    # Paging re-sends the query for every page, so a geometry converted per request would be
+    # re-converted per page — for a polygon that means re-winding the ring each time.
+    conversions = Ref(0)
+    ext = Extent(X=(-51.0, -49.0), Y=(66.0, 68.0))
+    counted = CountingGeometry(ext, conversions)
+
+    requests = []
+    responses = [
+        HTTP.Response(
+            200,
+            ["CMR-Search-After" => "page-2"],
+            cmr_response(["G1"], "granule"; hits=2),
+        ),
+        HTTP.Response(200, [], cmr_response(["G2"], "granule"; hits=2)),
+    ]
+    result = EarthData.granules(
+        bounding_box=counted,
+        page_size=1,
+        all=true,
+        requester=recording_requester(responses, requests),
+    )
+
+    @test length(result) == 2
+    @test length(requests) == 2
+    @test conversions[] == 1
+    # Both pages carry the same converted value; only the paging parameters differ.
+    @test occursin("bounding_box=-51%2C66%2C-49%2C68", requests[1].body)
+    @test occursin("bounding_box=-51%2C66%2C-49%2C68", requests[2].body)
 end
