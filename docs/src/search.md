@@ -110,6 +110,33 @@ granules(short_name="GEDI02_A", temporal=(nothing, Date(2019, 5, 1)))    # every
 A `Date` is taken as midnight UTC and a `DateTime` as already being UTC, since CMR has no way
 to read a local offset. Strings are passed through unchanged.
 
+## Coverage of a result
+
+A granule or collection states its own spatial coverage, and `Extents.extent` reads it back:
+
+```julia
+using Extents
+
+g = first(granules(short_name="GEDI02_A"))
+Extents.extent(g)  # Extent(X = (-105.27, -103.82), Y = (-2.09, -0.01))
+```
+
+The UMM geometry types implement GeoInterface, so a result's coverage is a geometry like any
+other — it can go straight into `GeometryOps`, `Rasters.crop`, or another search:
+
+```julia
+gg = granules(short_name="MCD43A3", version="061", polygon=first(g.SpatialExtent.HorizontalSpatialDomain.Geometry.GPolygons))
+```
+
+An extent goes straight to `bounding_box`, so coverage computed elsewhere needs no conversion:
+
+```julia
+gg = granules(short_name="MCD43A3", version="061", bounding_box=Extents.extent(raster))
+```
+
+`BoundingRectangleType(extent)` builds the UMM record itself, for when a rectangle is what you
+want rather than a search parameter.
+
 ## Collections
 
 `collections` searches collection metadata and returns
