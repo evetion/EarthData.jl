@@ -239,9 +239,9 @@ end
 Read `login` and `password` for `machine` from `.netrc`, the counterpart to
 [`netrc!`](@ref).
 
-`.netrc` is a whitespace-separated token stream, so the tokens are scanned in order and the
-values following the target `machine` are taken until the next `machine` or `default`
-entry. The `macdef` form is not supported. `path` defaults to [`netrc_path`](@ref).
+Each line is scanned for `machine`, `login` and `password` tokens, carrying the current
+machine across lines so a stanza may be written on one line or several. Comments are
+skipped and the `macdef` form is not supported. `path` defaults to [`netrc_path`](@ref).
 """
 function netrc_credentials(
     machine::AbstractString="urs.earthdata.nasa.gov";
@@ -257,27 +257,31 @@ function netrc_credentials(
         and `chmod 600` it, or use `EarthData.netrc!(username, password)`.
         """)
 
-    tokens = split(read(file, String))
     login = password = nothing
     inside = false
-    i = 1
-    while i <= length(tokens)
-        t = tokens[i]
-        if t == "machine"
-            inside = i + 1 <= length(tokens) && tokens[i + 1] == machine
-            i += 2
-            continue
-        elseif t == "default"
-            inside = true
-            i += 1
-            continue
-        elseif inside && t in ("login", "password") && i + 1 <= length(tokens)
-            t == "login" ? (login = tokens[i + 1]) : (password = tokens[i + 1])
-            i += 2
-            !isnothing(login) && !isnothing(password) && break
-            continue
+    for line in eachline(file)
+        startswith(lstrip(line), "#") && continue
+        tokens = split(line)
+        i = 1
+        while i <= length(tokens)
+            t = tokens[i]
+            if t == "machine"
+                # A named machine ends the previous stanza whether or not it is the target,
+                # so credentials never leak from one machine's stanza into another's.
+                inside = i + 1 <= length(tokens) && tokens[i + 1] == machine
+                i += 2
+            elseif t == "default"
+                inside = true
+                i += 1
+            elseif inside && t in ("login", "password") && i + 1 <= length(tokens)
+                t == "login" ? (login = tokens[i + 1]) : (password = tokens[i + 1])
+                i += 2
+            else
+                i += 1
+            end
         end
-        i += 1
+        # The first matching stanza wins, which is also the one curl uses.
+        isnothing(login) || isnothing(password) || break
     end
 
     (isnothing(login) || isnothing(password)) &&

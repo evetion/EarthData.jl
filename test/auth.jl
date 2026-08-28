@@ -71,6 +71,32 @@ end
         end
     end
 
+    mktempdir() do dir
+        path = joinpath(dir, "netrc")
+        # A commented-out stanza is not a credential. Reading one would send a password the
+        # user disabled on purpose.
+        write(
+            path,
+            """
+            # machine urs.earthdata.nasa.gov login old password old
+            machine urs.earthdata.nasa.gov login someone password s3cret
+            """,
+        )
+        @test EarthData.netrc_credentials("urs.earthdata.nasa.gov"; path) ==
+              ("someone", "s3cret")
+
+        # `default` applies to machines with no stanza of their own, so it must not hand
+        # over another machine's credentials.
+        write(
+            path,
+            """
+            machine example.com login other password otherpw
+            default login anyone password anypw
+            """,
+        )
+        @test EarthData.netrc_credentials("nasa.example"; path) == ("anyone", "anypw")
+        @test EarthData.netrc_credentials("example.com"; path) == ("other", "otherpw")
+    end
 end
 
 @testset "Writing .netrc" begin
