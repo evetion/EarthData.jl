@@ -1,35 +1,37 @@
 import Aria2_jll
 
 """
-    netrc!(username, password)
+    netrc_downloader(path=netrc_path()) -> Downloads.Downloader
 
-Writes/updates a .netrc file for ICESat-2 and GEDI downloads. A .netrc is a plaintext
-file containing your username and password for NASA EarthData and DAACs, and can be automatically
-used by Julia using `Downloads` and tools like `wget`, `curl` among others.
+A `Downloader` that reads credentials from `path` rather than from `\$HOME/.netrc`.
+
+libcurl resolves `.netrc` from the home directory and does not read `NETRC`, so naming the
+file is what keeps a download on the same credentials [`netrc_credentials`](@ref) reads.
+Any globally installed `Downloads.EASY_HOOK` runs too.
 """
-function netrc!(username, password)
-    if Sys.iswindows()
-        fn = joinpath(homedir(), "_netrc")
-    else
-        fn = joinpath(homedir(), ".netrc")
+function netrc_downloader(path::AbstractString=netrc_path())
+    downloader = Downloads.Downloader()
+    prior = downloader.easy_hook
+    downloader.easy_hook = function (easy, info)
+        isnothing(prior) || prior(easy, info)
+        Downloads.Curl.setopt(easy, Downloads.Curl.CURLOPT_NETRC_FILE, path)
     end
-
-    open(fn, "a") do f
-        write(f, "\n")
-        write(f, "machine urs.earthdata.nasa.gov login $username password $(password)\n")
-    end
-    fn
+    return downloader
 end
 
-# `Downloads` enables both `CURLOPT_NETRC` (optional) and session cookies by default —
-# JuliaLang/Downloads.jl#98, released in Downloads 1.5.0, and Julia 1.10 ships 1.6.0. The
-# `custom_downloader` that used to set exactly those two options was a restatement of the
-# default, so Earthdata's redirect-based auth works without a hook.
-function download(url::AbstractString, fn::AbstractString; kwargs...)
+# Earthdata's redirect-based auth needs no hook of its own: `Downloads` enables both
+# `CURLOPT_NETRC` (optional) and session cookies by default — JuliaLang/Downloads.jl#98,
+# released in Downloads 1.5.0, and Julia 1.10 ships 1.6.0.
+function download(
+    url::AbstractString,
+    fn::AbstractString;
+    downloader=netrc_downloader(),
+    kwargs...,
+)
     if startswith(url, "s3:")
         s3download(url, fn)
     else
-        Downloads.download(url, fn; kwargs...)
+        Downloads.download(url, fn; downloader, kwargs...)
     end
 end
 
@@ -84,7 +86,11 @@ function download(
     else
         fn = write_urls(urls)
         try
-            runner(`$(Aria2_jll.aria2c()) -i $fn -c -d $folder`)
+            # `--netrc-path`: aria2c reads `$HOME/.netrc` and not `NETRC`, so naming the
+            # file is what keeps it on the same credentials as the rest of the package.
+            runner(
+                `$(Aria2_jll.aria2c()) --netrc-path=$(netrc_path()) -i $fn -c -d $folder`,
+            )
         finally
             rm(fn; force=true)
         end
