@@ -18,6 +18,7 @@ const UMMRectangle =
     Union{Granules.BoundingRectangleType,Collections.BoundingRectangleType}
 const UMMPolygon = Union{Granules.GPolygonType,Collections.GPolygonType}
 const UMMGeometry = Union{Granules.GeometryType,Collections.GeometryType}
+const UMMRecord = Union{Granules.UMM_G,Collections.UMM_C}
 
 GeoInterface.isgeometry(::Type{<:UMMPoint}) = true
 GeoInterface.geomtrait(::UMMPoint) = GeoInterface.PointTrait()
@@ -106,19 +107,43 @@ function nth_geometry(fields::Tuple, i::Integer)
     throw(BoundsError(fields, i))
 end
 
-# Which module's structs to build, so a granule's rectangle yields granule points.
-pointtype(::Granules.BoundingRectangleType) = Granules.PointType
-pointtype(::Collections.BoundingRectangleType) = Collections.PointType
-boundarytype(::Granules.BoundingRectangleType) = Granules.BoundaryType
-boundarytype(::Collections.BoundingRectangleType) = Collections.BoundaryType
+# Which module's structs to build, so a granule's geometry yields granule parts. One `Union`
+# per module rather than a method per geometry: the module is the only thing being decided,
+# and `GeoInterface.convert` is handed a type while the trait methods hold an instance.
+const GranulesGeometry = Union{
+    Granules.PointType,
+    Granules.LineType,
+    Granules.BoundaryType,
+    Granules.GPolygonType,
+    Granules.BoundingRectangleType,
+    Granules.GeometryType,
+}
+const CollectionsGeometry = Union{
+    Collections.PointType,
+    Collections.LineType,
+    Collections.BoundaryType,
+    Collections.GPolygonType,
+    Collections.BoundingRectangleType,
+    Collections.GeometryType,
+}
+
+pointtype(::Type{<:GranulesGeometry}) = Granules.PointType
+pointtype(::Type{<:CollectionsGeometry}) = Collections.PointType
+boundarytype(::Type{<:GranulesGeometry}) = Granules.BoundaryType
+boundarytype(::Type{<:CollectionsGeometry}) = Collections.BoundaryType
+exclusivezonetype(::Type{<:GranulesGeometry}) = Granules.ExclusiveZoneType
+exclusivezonetype(::Type{<:CollectionsGeometry}) = Collections.ExclusiveZoneType
+
+pointtype(g::AbstractJSON) = pointtype(typeof(g))
+boundarytype(g::AbstractJSON) = boundarytype(typeof(g))
 
 """
     BoundingRectangleType(extent::Extents.Extent)
 
 A UMM bounding rectangle covering `extent`, which needs `X` and `Y`.
 
-This is how an extent from elsewhere reaches a search: `Extents.extent(raster)` gives `X`/`Y`
-that CMR cannot read, and a rectangle is a geometry [`granules`](@ref) accepts.
+`GeoInterface.convert(BoundingRectangleType, geom)` does the same for any GeoInterface
+rectangle, not just an `Extent`.
 
 ```jldoctest
 extent = EarthData.Extents.Extent(X=(-51.0, -49.0), Y=(40.0, 60.0))
@@ -134,6 +159,47 @@ Granules.BoundingRectangleType(extent::Extents.Extent) =
 Collections.BoundingRectangleType(extent::Extents.Extent) =
     rectangle_from_extent(Collections.BoundingRectangleType, extent)
 
+# Building a UMM rectangle from any GeoInterface rectangle, which is how coverage computed
+# elsewhere becomes a record: `GeoInterface.convert` dispatches on the trait, so this covers
+# every package's rectangle rather than `Extents.Extent` alone.
+GeoInterface.convert(
+    ::Type{R},
+    ::GeoInterface.RectangleTrait,
+    geom,
+) where {R<:UMMRectangle} = rectangle_from_extent(R, GeoInterface.extent(geom))
+
+# The remaining geometries, so `convert` serves every type the traits cover rather than only
+# rectangles.
+GeoInterface.convert(::Type{P}, ::GeoInterface.PointTrait, geom) where {P<:UMMPoint} =
+    P(GeoInterface.x(geom), GeoInterface.y(geom))
+
+GeoInterface.convert(::Type{L}, ::GeoInterface.LineStringTrait, geom) where {L<:UMMLine} =
+    L(umm_points(L, geom))
+
+GeoInterface.convert(
+    ::Type{B},
+    ::Union{GeoInterface.LinearRingTrait,GeoInterface.LineStringTrait},
+    geom,
+) where {B<:UMMBoundary} = B(umm_points(B, geom))
+
+# The points of `geom` as the module's own `PointType`, which is what a line or a boundary
+# holds.
+umm_points(::Type{T}, geom) where {T} =
+    [GeoInterface.convert(pointtype(T), p) for p in GeoInterface.getpoint(geom)]
+
+# UMM stores a polygon's holes as an `ExclusiveZone`, so a hole-less polygon has none.
+function GeoInterface.convert(
+    ::Type{P},
+    ::GeoInterface.PolygonTrait,
+    geom,
+) where {P<:UMMPolygon}
+    B = boundarytype(P)
+    exterior = GeoInterface.convert(B, GeoInterface.getexterior(geom))
+    holes = [GeoInterface.convert(B, h) for h in GeoInterface.gethole(geom)]
+    zone = isempty(holes) ? nothing : exclusivezonetype(P)(holes)
+    return P(zone, exterior)
+end
+
 # The fields are declared (North, West, East, South), so the mapping from an extent lives
 # here once: writing it per module is how one of them ends up transposed.
 function rectangle_from_extent(::Type{R}, extent::Extents.Extent) where {R<:UMMRectangle}
@@ -147,7 +213,7 @@ function rectangle_from_extent(::Type{R}, extent::Extents.Extent) where {R<:UMMR
 end
 
 """
-    Extents.extent(record::Union{Granules.UMM_G,Collections.UMM_C}) -> Union{Extent,Nothing}
+    Extents.extent(record::UMMRecord) -> Union{Extent,Nothing}
 
 The record's spatial extent in degrees, or `nothing` when it states no coverage.
 
@@ -165,8 +231,8 @@ haskey(ext, :X) && haskey(ext, :Y)
 true
 ```
 """
-function Extents.extent(record::Union{Granules.UMM_G,Collections.UMM_C})
-    geometry = @something umm_geometry(record) return nothing
+function Extents.extent(record::UMMRecord)
+    geometry = @something GeoInterface.geometry(record) return nothing
     return Extents.extent(geometry)
 end
 
@@ -218,9 +284,73 @@ function points_extent(points)
     return acc
 end
 
-# The geometry a record carries, or `nothing` if any level of the nesting is absent.
-function umm_geometry(record)
+"""
+    GeoInterface.geometry(record) -> Union{GeometryType,Nothing}
+
+The geometry a granule or collection carries, or `nothing` when the record states no
+coverage — reaching through `SpatialExtent.HorizontalSpatialDomain.Geometry` so a caller
+need not.
+
+```jldoctest
+g = first(granules(short_name="GEDI02_A"))
+EarthData.GeoInterface.trait(EarthData.GeoInterface.geometry(g))
+# output
+GeoInterface.GeometryCollectionTrait()
+```
+"""
+function GeoInterface.geometry(record::UMMRecord)
     spatial = @something record.SpatialExtent return nothing
     horizontal = @something spatial.HorizontalSpatialDomain return nothing
     return horizontal.Geometry
+end
+
+# A record pairs coverage with everything else CMR knows about it, which is what a feature is.
+# `GeoInterface.geometry` above is the geometry half, so only the properties half is new.
+GeoInterface.isfeature(::Type{<:UMMRecord}) = true
+GeoInterface.trait(::UMMRecord) = GeoInterface.FeatureTrait()
+
+"""
+    GeoInterface.properties(record) -> NamedTuple
+
+Everything the record states apart from its coverage, so a granule reads as a row beside the
+geometry [`GeoInterface.geometry`](@ref) returns.
+
+`SpatialExtent` is left out because it *is* the geometry: including it would write the
+coordinates twice. That is what GeoInterface's own `NamedTuple` features, GeoDataFrames and
+ArchGDAL all do.
+"""
+function GeoInterface.properties(record::UMMRecord)
+    names = filter(!=(:SpatialExtent), fieldnames(typeof(record)))
+    return NamedTuple{names}(map(name -> getfield(record, name), names))
+end
+
+# A search returns a plain `Vector`, so the collection is keyed on the element type — the same
+# way GeoInterface treats an `AbstractArray` of `NamedTuple` features.
+const UMMRecords = AbstractVector{<:UMMRecord}
+
+GeoInterface.isfeaturecollection(::Type{<:UMMRecords}) = true
+GeoInterface.trait(::UMMRecords) = GeoInterface.FeatureCollectionTrait()
+GeoInterface.nfeature(::GeoInterface.FeatureCollectionTrait, records::UMMRecords) =
+    length(records)
+GeoInterface.getfeature(
+    ::GeoInterface.FeatureCollectionTrait,
+    records::UMMRecords,
+    i::Integer,
+) = records[i]
+
+# The extent of every record that states one, so a result whose records state no coverage gives
+# `nothing`. Reach it through `Extents.extent` for an empty result: `GeoInterface.extent` reads
+# a `nothing` as "no method defined" and falls back to `calc_extent`, which reduces without an
+# `init` and so raises on an empty collection.
+GeoInterface.extent(::GeoInterface.FeatureCollectionTrait, records::UMMRecords) =
+    Extents.extent(records)
+
+function Extents.extent(records::UMMRecords)
+    acc = nothing
+    for record in records
+        ext = Extents.extent(record)
+        isnothing(ext) && continue
+        acc = isnothing(acc) ? ext : Extents.union(acc, ext)
+    end
+    return acc
 end
