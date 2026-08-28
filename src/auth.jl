@@ -14,6 +14,133 @@ const token_page = "https://urs.earthdata.nasa.gov/users/tokens"
 const token_api = "https://urs.earthdata.nasa.gov/api/users"
 
 """
+    netrc_path() -> String
+
+The `.netrc` file this package reads credentials from and writes them to.
+
+`~/.netrc`, except on Windows, where `~/_netrc` is used when it exists and `~/.netrc` does
+not. That is the order libcurl resolves the two names in, so a download and this package
+read the same file.
+"""
+function netrc_path()
+    path = joinpath(homedir(), ".netrc")
+    if Sys.iswindows() && !isfile(path)
+        legacy = joinpath(homedir(), "_netrc")
+        isfile(legacy) && return legacy
+    end
+    return path
+end
+
+"""
+    netrc!(username, password; machine="urs.earthdata.nasa.gov", path=netrc_path()) -> String
+
+Store Earthdata Login credentials in `.netrc`, replacing any existing stanza for `machine`.
+
+`.netrc` is a plaintext file that `Downloads`, curl, wget and aria2c read to authenticate,
+which is how a NASA download gets its credentials without a token. The file is left at mode
+`600`, on Windows too — `chmod` there rewrites the file's ACL to grant the owner alone.
+
+Replacement rather than addition is what makes a correction take effect: curl uses the
+*first* stanza matching a machine, so a second one for the same machine is never read.
+Other machines, and comments, are left as they are.
+
+A credential containing whitespace cannot be represented in `.netrc`, so it raises here
+instead of writing a file that parses as something else.
+"""
+function netrc!(
+    username,
+    password;
+    machine::AbstractString="urs.earthdata.nasa.gov",
+    path::AbstractString=netrc_path(),
+)
+    for (name, value) in
+        (("username", username), ("password", password), ("machine", machine))
+        netrc_token(name, value)
+    end
+
+    lines = isfile(path) ? netrc_without(readlines(path), machine) : String[]
+    while !isempty(lines) && isempty(strip(last(lines)))
+        pop!(lines)
+    end
+    open(path, "w") do io
+        for line in lines
+            println(io, line)
+        end
+        println(io, "machine $(machine) login $(username) password $(password)")
+    end
+    chmod(path, 0o600)
+    return path
+end
+
+"""
+    netrc_token(name, value) -> String
+
+`value` as a `.netrc` token, or an `ArgumentError` if it cannot be one.
+
+`.netrc` separates tokens on whitespace and has no quoting or escaping, so a value
+containing whitespace would be read back as different values than were written.
+"""
+function netrc_token(name::AbstractString, value)
+    s = string(value)
+    isempty(s) &&
+        throw(ArgumentError("`$(name)` is empty; .netrc has no way to write that."))
+    any(isspace, s) && throw(
+        ArgumentError(
+            "`$(name)` contains whitespace, which .netrc uses to separate tokens, so it " *
+            "cannot be stored there.",
+        ),
+    )
+    return s
+end
+
+"""
+    netrc_without(lines, machine) -> Vector{String}
+
+`lines` with the stanza for `machine` removed.
+
+A stanza runs from `machine <name>` to the next `machine` or `default`, which is not
+necessarily a line boundary — but lines are the unit removed, so comments and the
+formatting of other machines survive. A line carrying both this machine's tokens and
+another's cannot be removed without rewriting it, and raises.
+"""
+function netrc_without(lines, machine::AbstractString)
+    kept = String[]
+    inside = false
+    for line in lines
+        if startswith(lstrip(line), "#")
+            push!(kept, line)
+            continue
+        end
+        tokens = split(line)
+        target = other = false
+        i = 1
+        while i <= length(tokens)
+            if tokens[i] == "machine"
+                inside = i + 1 <= length(tokens) && tokens[i + 1] == machine
+                i += 2
+            elseif tokens[i] == "default"
+                inside = false
+                i += 1
+            else
+                i += 1
+            end
+            inside ? (target = true) : (other = true)
+        end
+        target &&
+            other &&
+            throw(
+                ArgumentError(
+                    "This .netrc line holds both \"$(machine)\" and another machine, so " *
+                    "the stanza cannot be replaced without rewriting the line: " *
+                    "$(repr(line))",
+                ),
+            )
+        target || push!(kept, line)
+    end
+    return kept
+end
+
+"""
     token() -> String
 
 The Earthdata Login bearer token, from the environment or a token file.
@@ -118,17 +245,15 @@ end
 Read `login` and `password` for `machine` from `.netrc`, the counterpart to
 [`netrc!`](@ref).
 
-`.netrc` is a whitespace-separated token stream, so the tokens are scanned in order and the
-values following the target `machine` are taken until the next `machine` or `default`
-entry. The `macdef` form is not supported. `path` defaults to `ENV["NETRC"]`, else
-`~/.netrc` (`~/_netrc` on Windows).
+Each line is scanned for `machine`, `login` and `password` tokens, carrying the current
+machine across lines so a stanza may be written on one line or several. Comments are
+skipped and the `macdef` form is not supported. `path` defaults to [`netrc_path`](@ref).
 """
 function netrc_credentials(
     machine::AbstractString="urs.earthdata.nasa.gov";
     path=nothing,
 )
-    default_name = Sys.iswindows() ? "_netrc" : ".netrc"
-    file = something(path, get(ENV, "NETRC", joinpath(homedir(), default_name)))
+    file = something(path, netrc_path())
     isfile(file) || error("""
         No .netrc file at $(file), so Earthdata Login credentials cannot be read.
         Add a stanza:
@@ -138,27 +263,31 @@ function netrc_credentials(
         and `chmod 600` it, or use `EarthData.netrc!(username, password)`.
         """)
 
-    tokens = split(read(file, String))
     login = password = nothing
     inside = false
-    i = 1
-    while i <= length(tokens)
-        t = tokens[i]
-        if t == "machine"
-            inside = i + 1 <= length(tokens) && tokens[i + 1] == machine
-            i += 2
-            continue
-        elseif t == "default"
-            inside = true
-            i += 1
-            continue
-        elseif inside && t in ("login", "password") && i + 1 <= length(tokens)
-            t == "login" ? (login = tokens[i + 1]) : (password = tokens[i + 1])
-            i += 2
-            !isnothing(login) && !isnothing(password) && break
-            continue
+    for line in eachline(file)
+        startswith(lstrip(line), "#") && continue
+        tokens = split(line)
+        i = 1
+        while i <= length(tokens)
+            t = tokens[i]
+            if t == "machine"
+                # A named machine ends the previous stanza whether or not it is the target,
+                # so credentials never leak from one machine's stanza into another's.
+                inside = i + 1 <= length(tokens) && tokens[i + 1] == machine
+                i += 2
+            elseif t == "default"
+                inside = true
+                i += 1
+            elseif inside && t in ("login", "password") && i + 1 <= length(tokens)
+                t == "login" ? (login = tokens[i + 1]) : (password = tokens[i + 1])
+                i += 2
+            else
+                i += 1
+            end
         end
-        i += 1
+        # The first matching stanza wins, which is also the one curl uses.
+        isnothing(login) || isnothing(password) || break
     end
 
     (isnothing(login) || isnothing(password)) &&

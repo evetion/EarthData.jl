@@ -82,8 +82,14 @@ with `netrc!`:
 EarthData.netrc!("earthdata_username", "earthdata_password")
 ```
 
-The file is plaintext, so use the same care you would use for any credential
-file.
+The file is plaintext, so `netrc!` writes it at mode `600`. Calling it again
+replaces the Earthdata stanza rather than adding a second one, which is what makes
+correcting a wrong password take effect: curl reads the *first* stanza matching a
+machine. Other machines in the file are left alone.
+
+`EarthData.netrc_path()` is the file used: `~/.netrc`, except on Windows, where the
+legacy `~/_netrc` is used when it exists and `~/.netrc` does not. `aria2c` is pointed
+at it explicitly, since it defaults to `~/.netrc` with no `_netrc` fallback.
 
 ### Bearer tokens
 

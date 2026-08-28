@@ -255,3 +255,82 @@ end
     @test length(gg) == 1
     @test length(requests) == 1
 end
+
+"""
+    unreachable_host(err) -> Union{String,Nothing}
+
+The host `err` failed to reach, or `nothing` if it is not a connection failure.
+
+`/s3credentials` answers 307 to `urs.earthdata.nasa.gov`, so an EDL outage surfaces as a
+connect timeout naming EDL rather than the DAAC. Distinguishing that from a genuine
+failure is the difference between "NASA is down" and "this package is broken", and only the
+libcurl message carries the host.
+
+A transport fault that happened mid-redirect carries the redirect's own status, so the
+guard is on `>= 400` — as in `is_transient` — rather than on a status of zero. A 403 or a
+503 is the service answering and must not be read as unreachable.
+"""
+function unreachable_host(err)
+    EarthData.error_status(err) >= 400 && return nothing
+    msg = sprint(showerror, err)
+    m = match(r"(?:Failed to connect to|Could not resolve host:?) ([\w.-]+)", msg)
+    isnothing(m) || return String(m.captures[1])
+    timed_out =
+        occursin("Connection timed out", msg) || occursin("Timeout was reached", msg)
+    timed_out || return nothing
+    # A timeout with no host named is still a reachability failure; report the endpoint the
+    # request was aimed at.
+    m = match(r"while requesting https?://([\w.-]+)", msg)
+    return isnothing(m) ? "the Earthdata endpoint" : String(m.captures[1])
+end
+
+@testset "Diagnosing an unreachable host" begin
+    resp(status) = Downloads.Response(
+        "https",
+        "https://data.nsidc.earthdatacloud.nasa.gov/s3credentials",
+        status,
+        "",
+        Pair{String,String}[],
+    )
+    # libcurl code 28 is CURLE_OPERATION_TIMEDOUT; the message is what carries the host.
+    req(msg, status) = Downloads.RequestError(
+        "https://data.nsidc.earthdatacloud.nasa.gov/s3credentials",
+        28,
+        msg,
+        resp(status),
+    )
+
+    # `/s3credentials` answers 307, so a transport fault while following the redirect
+    # carries 307 rather than a status of zero. Guarding on zero misses every real outage.
+    @test unreachable_host(
+        req(
+            "HTTP/1.1 307 Temporary Redirect (Failed to connect to urs.earthdata.nasa.gov \
+             port 443 after 21048 ms: Couldn't connect to server) while requesting \
+             https://data.nsidc.earthdatacloud.nasa.gov/s3credentials",
+            307,
+        ),
+    ) == "urs.earthdata.nasa.gov"
+
+    # A timeout naming no host is still unreachable; the endpoint stands in for it.
+    @test unreachable_host(
+        req(
+            "HTTP/2 307 (Connection timed out after 30017 milliseconds) while requesting \
+             https://data.nsidc.earthdatacloud.nasa.gov/s3credentials",
+            307,
+        ),
+    ) == "data.nsidc.earthdatacloud.nasa.gov"
+
+    @test unreachable_host(req("Could not resolve host: urs.earthdata.nasa.gov", 0)) ==
+          "urs.earthdata.nasa.gov"
+
+    # The service answering is not the service being unreachable, however the message is
+    # worded — these must reach the caller as the failures they are.
+    for status in (401, 403, 404, 500, 503)
+        @test isnothing(unreachable_host(req("HTTP/1.1 $(status) refused", status)))
+    end
+    @test isnothing(unreachable_host(req("HTTP/1.1 503 (Connection timed out)", 503)))
+
+    # A bug in this package must never be reported as an outage.
+    @test isnothing(unreachable_host(MethodError(sum, ())))
+    @test isnothing(unreachable_host(ErrorException("credentials came back empty")))
+end
