@@ -85,9 +85,10 @@ const s3_credentials_deadline_s = 120.0
             # Test we can retrieve non-empty AWS credentials. The DAAC requires Earthdata
             # Login, so this half only runs where the credentials exist.
             if setup_env()
-                # A live call against NASA, so an outage must be reported as one rather
-                # than as a package failure. `@test_broken` records it without failing the
-                # suite: nothing here is under this repository's control.
+                # A live call against NASA, so it fails when NASA is down. That is a real
+                # failure — the credentials genuinely could not be fetched — and it stays
+                # one; an unreachable host only changes the message, so whoever reads the
+                # log knows to rerun rather than to go looking for the bug.
                 try
                     EarthData.create_aws_config(
                         deadline=time() + s3_credentials_deadline_s,
@@ -96,17 +97,18 @@ const s3_credentials_deadline_s = 120.0
                 catch err
                     host = unreachable_host(err)
                     isnothing(host) && rethrow()
-                    @warn """
-                        Could not reach $(host) within $(Int(s3_credentials_deadline_s))s, \
-                        so the live S3-credentials test did not run.
+                    error("""
+                        Could not reach $(host) within $(Int(s3_credentials_deadline_s))s,
+                        so the live S3-credentials test could not run.
 
-                        `/s3credentials` redirects to urs.earthdata.nasa.gov, so an \
-                        Earthdata Login outage stops this test even though the DAAC itself \
-                        answered. This is a NASA-side failure, not a fault in EarthData.jl \
-                        — rerun the job once the service is back.
-                        """ exception = (err, catch_backtrace())
-                    @test_broken "S3 credentials require $(host), which is unreachable" ==
-                                 ""
+                        `/s3credentials` redirects to urs.earthdata.nasa.gov, so an
+                        Earthdata Login outage stops this test even when the DAAC itself
+                        answers. Check whether the service is up before treating this as a
+                        fault in EarthData.jl, and rerun the job once it is.
+
+                        The underlying failure was:
+                        $(sprint(showerror, err))
+                        """)
                 end
             end
         end
