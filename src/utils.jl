@@ -1,37 +1,13 @@
 import Aria2_jll
 
-"""
-    netrc_downloader(path=netrc_path()) -> Downloads.Downloader
-
-A `Downloader` that reads credentials from `path` rather than from `\$HOME/.netrc`.
-
-libcurl resolves `.netrc` from the home directory and does not read `NETRC`, so naming the
-file is what keeps a download on the same credentials [`netrc_credentials`](@ref) reads.
-Any globally installed `Downloads.EASY_HOOK` runs too.
-"""
-function netrc_downloader(path::AbstractString=netrc_path())
-    downloader = Downloads.Downloader()
-    prior = downloader.easy_hook
-    downloader.easy_hook = function (easy, info)
-        isnothing(prior) || prior(easy, info)
-        Downloads.Curl.setopt(easy, Downloads.Curl.CURLOPT_NETRC_FILE, path)
-    end
-    return downloader
-end
-
 # Earthdata's redirect-based auth needs no hook of its own: `Downloads` enables both
 # `CURLOPT_NETRC` (optional) and session cookies by default — JuliaLang/Downloads.jl#98,
 # released in Downloads 1.5.0, and Julia 1.10 ships 1.6.0.
-function download(
-    url::AbstractString,
-    fn::AbstractString;
-    downloader=netrc_downloader(),
-    kwargs...,
-)
+function download(url::AbstractString, fn::AbstractString; kwargs...)
     if startswith(url, "s3:")
         s3download(url, fn)
     else
-        Downloads.download(url, fn; downloader, kwargs...)
+        Downloads.download(url, fn; kwargs...)
     end
 end
 
@@ -86,8 +62,9 @@ function download(
     else
         fn = write_urls(urls)
         try
-            # `--netrc-path`: aria2c reads `$HOME/.netrc` and not `NETRC`, so naming the
-            # file is what keeps it on the same credentials as the rest of the package.
+            # aria2c reads `$HOME/.netrc` and has no `_netrc` fallback, so naming the file
+            # is what lets a Windows user with only `_netrc` download. It also requires
+            # mode 600, which `netrc!` sets.
             runner(
                 `$(Aria2_jll.aria2c()) --netrc-path=$(netrc_path()) -i $fn -c -d $folder`,
             )

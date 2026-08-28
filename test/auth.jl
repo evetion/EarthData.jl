@@ -65,10 +65,6 @@ end
             "urs.earthdata.nasa.gov";
             path=joinpath(dir, "absent"),
         )
-
-        withenv("NETRC" => path) do
-            @test EarthData.netrc_credentials() == ("someone", "s3cret")
-        end
     end
 
     mktempdir() do dir
@@ -180,30 +176,37 @@ end
 
 @testset ".netrc path resolution" begin
     mktempdir() do dir
-        withhome(dir, "NETRC" => nothing) do
+        withhome(dir) do
+            # `.netrc` is the name on every platform. Reads and writes must agree on it,
+            # and so must the downloaders.
+            @test EarthData.netrc_path() == joinpath(dir, ".netrc")
+            @test EarthData.netrc!("someone", "s3cret") == joinpath(dir, ".netrc")
+            @test EarthData.netrc_credentials() == ("someone", "s3cret")
+        end
+    end
+
+    # `_netrc` is the legacy Windows name, used only there and only when `.netrc` is
+    # absent — the order libcurl tries the two in.
+    mktempdir() do dir
+        write(joinpath(dir, "_netrc"), "machine urs.earthdata.nasa.gov login u password p\n")
+        withhome(dir) do
             @test EarthData.netrc_path() ==
                   joinpath(dir, Sys.iswindows() ? "_netrc" : ".netrc")
         end
-        # Reads and writes must agree on the file, and both must agree with what the
-        # downloaders are pointed at.
-        withhome(dir, "NETRC" => joinpath(dir, "elsewhere")) do
-            @test EarthData.netrc_path() == joinpath(dir, "elsewhere")
-            @test EarthData.netrc!("someone", "s3cret") == joinpath(dir, "elsewhere")
-            @test EarthData.netrc_credentials() == ("someone", "s3cret")
+        write(joinpath(dir, ".netrc"), "machine urs.earthdata.nasa.gov login u password p\n")
+        withhome(dir) do
+            @test EarthData.netrc_path() == joinpath(dir, ".netrc")
         end
     end
 end
 
 @testset "Downloads use the same .netrc" begin
     mktempdir() do dir
-        elsewhere = joinpath(dir, "elsewhere")
-        withhome(dir, "NETRC" => elsewhere) do
+        withhome(dir) do
             EarthData.netrc!("someone", "s3cret"; machine="127.0.0.1")
 
-            # libcurl resolves `.netrc` from the home directory and ignores `NETRC`, so
-            # `CURLOPT_NETRC_FILE` is what keeps a download on the file
-            # `netrc_credentials` reads. The assertion is on what reaches the wire: a
-            # local server records the header libcurl chose to send.
+            # The assertion is on what reaches the wire: a local server records the header
+            # libcurl chose to send from the file `netrc_credentials` reads.
             seen = String[]
             server = HTTP.serve!("127.0.0.1", 8134) do request
                 push!(seen, something(HTTP.header(request, "Authorization", nothing), ""))
@@ -214,25 +217,27 @@ end
             finally
                 close(server)
             end
-            @test only(seen) ==
-                  "Basic " * Base64.base64encode("someone:s3cret")
+            @test only(seen) == "Basic " * Base64.base64encode("someone:s3cret")
 
-            # aria2c likewise reads `$HOME/.netrc` only.
+            # aria2c defaults to `$HOME/.netrc` with no `_netrc` fallback, so it is named
+            # explicitly and must be named the same file.
             commands = Cmd[]
             EarthData.download(
                 ["https://example.invalid/x"],
                 joinpath(dir, "out");
                 runner=cmd -> push!(commands, cmd),
             )
-            @test occursin("--netrc-path=$(elsewhere)", string(only(commands)))
+            @test occursin("--netrc-path=$(joinpath(dir, ".netrc"))", string(only(commands)))
         end
     end
 end
 
 @testset "Token from .netrc" begin
     mktempdir() do dir
-        path = joinpath(dir, "netrc")
-        write(path, "machine urs.earthdata.nasa.gov login someone password s3cret\n")
+        write(
+            joinpath(dir, ".netrc"),
+            "machine urs.earthdata.nasa.gov login someone password s3cret\n",
+        )
 
         requests = []
         function requester(method, url, headers; kwargs...)
@@ -244,7 +249,7 @@ end
             )
         end
 
-        withenv("NETRC" => path) do
+        withhome(dir) do
             @test EarthData.token_from_netrc(; requester) == "tok-from-edl"
         end
         # `create=false` must LIST tokens (GET /tokens), never create one: an account may
@@ -258,7 +263,7 @@ end
 
         empty!(requests)
         creating(args...; kwargs...) = requester(args...; kwargs...)
-        withenv("NETRC" => path) do
+        withhome(dir) do
             EarthData.token_from_netrc(; create=true, requester=creating)
         end
         @test only(requests).method == "POST"
@@ -267,13 +272,13 @@ end
         # An empty token list is an actionable error, not an empty string handed onward.
         empty_list(args...; kwargs...) =
             HTTP.Response(200, Pair{String,String}[]; body="[]")
-        withenv("NETRC" => path) do
+        withhome(dir) do
             @test_throws ErrorException EarthData.token_from_netrc(; requester=empty_list)
         end
 
         refused(args...; kwargs...) =
             HTTP.Response(403, Pair{String,String}[]; body="max tokens")
-        withenv("NETRC" => path) do
+        withhome(dir) do
             msg = try
                 EarthData.token_from_netrc(; create=true, requester=refused)
                 ""

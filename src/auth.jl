@@ -18,12 +18,18 @@ const token_api = "https://urs.earthdata.nasa.gov/api/users"
 
 The `.netrc` file this package reads credentials from and writes them to.
 
-`ENV["NETRC"]` wins, else `~/.netrc` (`~/_netrc` on Windows). Downloads name this file
-explicitly ([`netrc_downloader`](@ref), `--netrc-path`), because libcurl and aria2c both
-resolve `.netrc` from the home directory and neither reads `NETRC`.
+`~/.netrc`, except on Windows, where `~/_netrc` is used when it exists and `~/.netrc` does
+not. That is the order libcurl resolves the two names in, so a download and this package
+read the same file.
 """
-netrc_path() =
-    get(ENV, "NETRC", joinpath(homedir(), Sys.iswindows() ? "_netrc" : ".netrc"))
+function netrc_path()
+    path = joinpath(homedir(), ".netrc")
+    if Sys.iswindows() && !isfile(path)
+        legacy = joinpath(homedir(), "_netrc")
+        isfile(legacy) && return legacy
+    end
+    return path
+end
 
 """
     netrc!(username, password; machine="urs.earthdata.nasa.gov", path=netrc_path()) -> String

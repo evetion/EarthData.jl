@@ -87,10 +87,9 @@ replaces the Earthdata stanza rather than adding a second one, which is what mak
 correcting a wrong password take effect: curl reads the *first* stanza matching a
 machine. Other machines in the file are left alone.
 
-`EarthData.netrc_path()` is the file used, `ENV["NETRC"]` if set and `~/.netrc`
-otherwise (`~/_netrc` on Windows). Downloads are pointed at it explicitly, since
-libcurl and `aria2c` both resolve `.netrc` from the home directory and neither
-reads `NETRC`.
+`EarthData.netrc_path()` is the file used: `~/.netrc`, except on Windows, where the
+legacy `~/_netrc` is used when it exists and `~/.netrc` does not. `aria2c` is pointed
+at it explicitly, since it defaults to `~/.netrc` with no `_netrc` fallback.
 
 ### Bearer tokens
 
