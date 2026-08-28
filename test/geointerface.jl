@@ -258,6 +258,46 @@ end
     @test GI.convert(C.PointType, G.PointType(3.0, 4.0)) == C.PointType(3.0, 4.0)
 end
 
+@testset "GeoInterface.convert to a module" begin
+    C = EarthData.Collections
+    extent = Extent(X=(-51.0, -49.0), Y=(66.0, 68.0))
+    point = GI.Wrappers.Point((3.0, 4.0))
+    ring = GI.Wrappers.LinearRing([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)])
+    line = GI.Wrappers.LineString([(0.0, 0.0), (1.0, 1.0)])
+    polygon = GI.Wrappers.Polygon([ring])
+
+    # Naming a module rather than a type: GeoInterface resolves the target through
+    # `geointerface_geomtype`, so the caller does not have to know which UMM struct a trait
+    # corresponds to.
+    for (M, T) in ((EarthData.Granules, G), (C, C))
+        @test GI.convert(M, extent) isa T.BoundingRectangleType
+        @test GI.convert(M, point) isa T.PointType
+        @test GI.convert(M, line) isa T.LineType
+        @test GI.convert(M, ring) isa T.BoundaryType
+        @test GI.convert(M, polygon) isa T.GPolygonType
+    end
+
+    # The values have to survive the extra indirection, not just the types.
+    rect = GI.convert(EarthData.Granules, extent)
+    @test rect.WestBoundingCoordinate == -51.0
+    @test rect.NorthBoundingCoordinate == 68.0
+    @test GI.convert(C, point) == C.PointType(3.0, 4.0)
+
+    # `EarthData` itself answers with granule types, since that is what a search returns.
+    @test GI.convert(EarthData, extent) isa G.BoundingRectangleType
+    @test GI.convert(EarthData, polygon) isa G.GPolygonType
+
+    # The curried form is part of the documented API.
+    @test GI.convert(EarthData.Granules)(extent) isa G.BoundingRectangleType
+    @test map(GI.convert(C), [point, point]) == [C.PointType(3.0, 4.0), C.PointType(3.0, 4.0)]
+
+    # A geometry from one module converts through the other's module name, which is the
+    # module-level counterpart of the cross-module conversion above.
+    @test GI.convert(EarthData.Granules, C.BoundingRectangleType(extent)) isa
+          G.BoundingRectangleType
+    @test GI.convert(C, G.PointType(3.0, 4.0)) == C.PointType(3.0, 4.0)
+end
+
 @testset "GeoInterface.geometry" begin
     # The accessor reaches through SpatialExtent.HorizontalSpatialDomain.Geometry, so a
     # caller does not have to know the nesting.

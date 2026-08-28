@@ -200,6 +200,38 @@ function GeoInterface.convert(
     return P(zone, exterior)
 end
 
+# Which UMM type answers a trait, so `GeoInterface.convert(EarthData.Granules, geom)` picks
+# the target itself: GeoInterface's module-level `convert` looks up
+# `<module>.geointerface_geomtype(trait)` and calls the type-level methods above with the
+# result. The function has to belong to the module being named, and the two UMM modules are
+# generated, so the methods are added here rather than by `gen/codegen.jl`.
+#
+# `LineStringTrait` maps to a line: a ring converts to a `BoundaryType` only when its trait
+# says `LinearRingTrait`, since a boundary is a polygon part rather than a geometry CMR
+# accepts on its own.
+for M in (Granules, Collections)
+    @eval M begin
+        geointerface_geomtype(::$(GeoInterface.PointTrait)) = PointType
+        geointerface_geomtype(::$(GeoInterface.LineStringTrait)) = LineType
+        geointerface_geomtype(::$(GeoInterface.LinearRingTrait)) = BoundaryType
+        geointerface_geomtype(::$(GeoInterface.PolygonTrait)) = GPolygonType
+        geointerface_geomtype(::$(GeoInterface.RectangleTrait)) = BoundingRectangleType
+    end
+end
+
+"""
+    geointerface_geomtype(trait) -> Type
+
+The UMM type that `trait` converts to, for `GeoInterface.convert(EarthData, geom)`.
+
+Granule types, since a search returns granules far more often than collections. The two
+modules generate field-identical geometry structs and [`cmr_spatial`](@ref) sends either as
+the same text, so the choice only shows in the returned type; name
+`EarthData.Collections` to get the other.
+"""
+geointerface_geomtype(trait::GeoInterface.AbstractTrait) =
+    Granules.geointerface_geomtype(trait)
+
 # The fields are declared (North, West, East, South), so the mapping from an extent lives
 # here once: writing it per module is how one of them ends up transposed.
 function rectangle_from_extent(::Type{R}, extent::Extents.Extent) where {R<:UMMRectangle}
