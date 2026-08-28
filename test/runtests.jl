@@ -34,30 +34,6 @@ end
 # window but means a CI job spends over an hour on an unreachable endpoint before saying so.
 const s3_credentials_deadline_s = 120.0
 
-"""
-    unreachable_host(err) -> Union{String,Nothing}
-
-The host `err` failed to reach, or `nothing` if it is not a connection failure.
-
-`/s3credentials` answers 307 to `urs.earthdata.nasa.gov`, so an EDL outage surfaces as a
-connect timeout naming EDL rather than the DAAC. Distinguishing that from a genuine
-failure is the difference between "NASA is down" and "this package is broken", and only the
-libcurl message carries the host.
-"""
-function unreachable_host(err)
-    EarthData.error_status(err) == 0 || return nothing
-    msg = sprint(showerror, err)
-    m = match(r"(?:Failed to connect to|Could not resolve host:?) ([\w.-]+)", msg)
-    isnothing(m) || return m.captures[1]
-    timed_out =
-        occursin("Connection timed out", msg) || occursin("Timeout was reached", msg)
-    timed_out || return nothing
-    # A timeout with no host named is still a reachability failure; report the endpoint the
-    # request was aimed at.
-    m = match(r"while requesting https?://([\w.-]+)", msg)
-    return isnothing(m) ? "the Earthdata endpoint" : m.captures[1]
-end
-
 
 @testset "EarthData.jl" begin
     @testset "Granules" begin
