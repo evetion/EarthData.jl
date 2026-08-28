@@ -106,8 +106,11 @@ end
         @test EarthData.netrc!("someone", "s3cret"; path) == path
         @test EarthData.netrc_credentials("urs.earthdata.nasa.gov"; path) ==
               ("someone", "s3cret")
-        # A plaintext password must not be world-readable.
-        @test filemode(path) & 0o777 == 0o600
+        # A plaintext password must not be world-readable. `chmod` restricts the file on
+        # Windows as well, by rewriting its ACL, but `stat` there derives the mode from the
+        # read-only attribute alone and never reads the ACL — so any writable file reports
+        # 0o666 and the mode is only observable where it maps to POSIX bits.
+        Sys.iswindows() || @test filemode(path) & 0o777 == 0o600
 
         # Calling again with a corrected password has to take effect. curl reads the FIRST
         # stanza matching a machine, so appending a second one changes nothing.

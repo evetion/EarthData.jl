@@ -32,7 +32,7 @@ Store Earthdata Login credentials in `.netrc`, replacing any existing stanza for
 
 `.netrc` is a plaintext file that `Downloads`, curl, wget and aria2c read to authenticate,
 which is how a NASA download gets its credentials without a token. The file is left at mode
-`600`.
+`600`, on Windows too — `chmod` there rewrites the file's ACL to grant the owner alone.
 
 Replacement rather than addition is what makes a correction take effect: curl uses the
 *first* stanza matching a machine, so a second one for the same machine is never read.
