@@ -214,6 +214,80 @@ end
     @test Extents.extent(extent_granule(Dict{String,Any}())) === nothing
 end
 
+@testset "GeoInterface.convert" begin
+    C = EarthData.Collections
+    ring = G.BoundaryType([
+        G.PointType(-10.0, 0.0),
+        G.PointType(5.0, 0.0),
+        G.PointType(5.0, 10.0),
+        G.PointType(-10.0, 0.0),
+    ])
+
+    # Dispatching on the trait means any GeoInterface rectangle converts, not just an
+    # `Extent` — the reason this is `GeoInterface.convert` and not a constructor per source
+    # type.
+    rect = GI.convert(G.BoundingRectangleType, Extent(X=(-51.0, -49.0), Y=(66.0, 68.0)))
+    @test rect.WestBoundingCoordinate == -51.0
+    @test rect.SouthBoundingCoordinate == 66.0
+    @test rect.EastBoundingCoordinate == -49.0
+    @test rect.NorthBoundingCoordinate == 68.0
+
+    @test GI.convert(G.PointType, G.PointType(3.0, 4.0)) == G.PointType(3.0, 4.0)
+    @test GI.convert(G.BoundaryType, ring) == ring
+    @test GI.convert(G.LineType, G.LineType([G.PointType(0.0, 0.0), G.PointType(2.0, -3.0)])) ==
+          G.LineType([G.PointType(0.0, 0.0), G.PointType(2.0, -3.0)])
+
+    # An `ExclusiveZone` is the polygon's holes, so converting has to carry them across or it
+    # would silently widen the area to the exterior.
+    hole = G.BoundaryType([
+        G.PointType(-1.0, 1.0),
+        G.PointType(1.0, 1.0),
+        G.PointType(1.0, 2.0),
+        G.PointType(-1.0, 1.0),
+    ])
+    holed = G.GPolygonType(G.ExclusiveZoneType([hole]), ring)
+    @test GI.convert(G.GPolygonType, holed) == holed
+    @test GI.nhole(GI.convert(G.GPolygonType, holed)) == 1
+    # A polygon with no holes gets no zone rather than an empty one.
+    @test isnothing(GI.convert(G.GPolygonType, G.GPolygonType(nothing, ring)).ExclusiveZone)
+
+    # `Granules` and `Collections` generate field-identical structs, so a geometry from one
+    # converts into the other — which is what a collection search needs from a granule result.
+    @test GI.convert(C.GPolygonType, holed) isa C.GPolygonType
+    @test GI.nhole(GI.convert(C.GPolygonType, holed)) == 1
+    @test GI.convert(C.PointType, G.PointType(3.0, 4.0)) == C.PointType(3.0, 4.0)
+end
+
+@testset "GeoInterface.geometry" begin
+    # The accessor reaches through SpatialExtent.HorizontalSpatialDomain.Geometry, so a
+    # caller does not have to know the nesting.
+    granule = extent_granule(
+        Dict("BoundingRectangles" => [rectangle(-51.0, -49.0, 40.0, 60.0)]),
+    )
+    @test GI.trait(GI.geometry(granule)) isa GI.GeometryCollectionTrait
+    @test GI.ngeom(GI.geometry(granule)) == 1
+
+    # A record stating no coverage has no geometry, rather than an empty one.
+    bare = JSON3.read(
+        JSON3.write(
+            Dict{String,Any}(
+                "GranuleUR" => "G1",
+                "CollectionReference" => Dict("ShortName" => "T", "Version" => "1"),
+                "MetadataSpecification" => Dict(
+                    "URL" => "https://example.test",
+                    "Version" => "1.6.6",
+                    "Name" => "UMM-G",
+                ),
+                "ProviderDates" =>
+                    [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
+            ),
+        ),
+        EarthData.Granules.UMM_G,
+    )
+    @test isnothing(GI.geometry(bare))
+    @test isnothing(Extents.extent(bare))
+end
+
 @testset "Extent to bounding rectangle" begin
     # How an extent from elsewhere reaches a search: `Extents.extent(raster)` gives X/Y that
     # CMR cannot read, and a rectangle is a geometry `granules` accepts.
@@ -267,4 +341,64 @@ end
         :polygon,
         G.GPolygonType(G.ExclusiveZoneType([hole]), ring),
     )
+end
+
+@testset "Records as features" begin
+    # A record pairs coverage with the rest of what CMR knows, which is what a feature is.
+    granule = extent_granule(
+        Dict("BoundingRectangles" => [rectangle(-51.0, -49.0, 40.0, 60.0)]),
+    )
+    @test GI.isfeature(granule)
+    @test GI.trait(granule) isa GI.FeatureTrait
+    # A feature is not itself a geometry, so `geomtrait` stays `nothing` while `geometry`
+    # returns the collection the record carries.
+    @test isnothing(GI.geomtrait(granule))
+    @test GI.trait(GI.geometry(granule)) isa GI.GeometryCollectionTrait
+    @test GI.testfeature(granule)
+
+    # `SpatialExtent` is the geometry, so it is not repeated in the properties.
+    props = GI.properties(granule)
+    @test :SpatialExtent ∉ keys(props)
+    @test props.GranuleUR == "G1"
+    @test length(keys(props)) == length(fieldnames(typeof(granule))) - 1
+
+    # A record with no coverage is still a feature, just one with no geometry.
+    bare = JSON3.read(
+        JSON3.write(
+            Dict{String,Any}(
+                "GranuleUR" => "G2",
+                "CollectionReference" => Dict("ShortName" => "T", "Version" => "1"),
+                "MetadataSpecification" => Dict(
+                    "URL" => "https://example.test",
+                    "Version" => "1.6.6",
+                    "Name" => "UMM-G",
+                ),
+                "ProviderDates" =>
+                    [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
+            ),
+        ),
+        EarthData.Granules.UMM_G,
+    )
+    @test GI.testfeature(bare)
+    @test isnothing(GI.geometry(bare))
+end
+
+@testset "Results as a feature collection" begin
+    # A search returns a plain `Vector`, so the collection is keyed on the element type.
+    records = [
+        extent_granule(Dict("BoundingRectangles" => [rectangle(-51.0, -49.0, 40.0, 60.0)])),
+        extent_granule(Dict("Points" => [point(30.0, 40.0)])),
+    ]
+    @test GI.isfeaturecollection(records)
+    @test GI.trait(records) isa GI.FeatureCollectionTrait
+    @test GI.nfeature(records) == 2
+    @test GI.trait(GI.getfeature(records, 1)) isa GI.FeatureTrait
+    @test GI.testfeaturecollection(records)
+
+    # The collection's extent encloses every record that states one.
+    @test GI.extent(records) == Extent(X=(-51.0, 30.0), Y=(40.0, 60.0))
+
+    # An empty result has no extent rather than a zero-width one at the origin.
+    @test isnothing(Extents.extent(EarthData.Granules.UMM_G[]))
+    @test GI.nfeature(EarthData.Granules.UMM_G[]) == 0
 end
