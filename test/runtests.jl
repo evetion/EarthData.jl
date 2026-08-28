@@ -29,6 +29,35 @@ function setup_env()
     return false
 end
 
+# How long the live S3-credentials call may spend retrying. `with_retries` defaults to 60
+# attempts at up to 60 s of backoff, which suits a download waiting out a maintenance
+# window but means a CI job spends over an hour on an unreachable endpoint before saying so.
+const s3_credentials_deadline_s = 120.0
+
+"""
+    unreachable_host(err) -> Union{String,Nothing}
+
+The host `err` failed to reach, or `nothing` if it is not a connection failure.
+
+`/s3credentials` answers 307 to `urs.earthdata.nasa.gov`, so an EDL outage surfaces as a
+connect timeout naming EDL rather than the DAAC. Distinguishing that from a genuine
+failure is the difference between "NASA is down" and "this package is broken", and only the
+libcurl message carries the host.
+"""
+function unreachable_host(err)
+    EarthData.error_status(err) == 0 || return nothing
+    msg = sprint(showerror, err)
+    m = match(r"(?:Failed to connect to|Could not resolve host:?) ([\w.-]+)", msg)
+    isnothing(m) || return m.captures[1]
+    timed_out =
+        occursin("Connection timed out", msg) || occursin("Timeout was reached", msg)
+    timed_out || return nothing
+    # A timeout with no host named is still a reachability failure; report the endpoint the
+    # request was aimed at.
+    m = match(r"while requesting https?://([\w.-]+)", msg)
+    return isnothing(m) ? "the Earthdata endpoint" : m.captures[1]
+end
+
 
 @testset "EarthData.jl" begin
     @testset "Granules" begin
@@ -80,8 +109,29 @@ end
             # Test we can retrieve non-empty AWS credentials. The DAAC requires Earthdata
             # Login, so this half only runs where the credentials exist.
             if setup_env()
-                EarthData.create_aws_config()
-                @test !isempty(get(ENV, "AWS_ACCESS_KEY_ID", ""))
+                # A live call against NASA, so an outage must be reported as one rather
+                # than as a package failure. `@test_broken` records it without failing the
+                # suite: nothing here is under this repository's control.
+                try
+                    EarthData.create_aws_config(
+                        deadline=time() + s3_credentials_deadline_s,
+                    )
+                    @test !isempty(get(ENV, "AWS_ACCESS_KEY_ID", ""))
+                catch err
+                    host = unreachable_host(err)
+                    isnothing(host) && rethrow()
+                    @warn """
+                        Could not reach $(host) within $(Int(s3_credentials_deadline_s))s, \
+                        so the live S3-credentials test did not run.
+
+                        `/s3credentials` redirects to urs.earthdata.nasa.gov, so an \
+                        Earthdata Login outage stops this test even though the DAAC itself \
+                        answered. This is a NASA-side failure, not a fault in EarthData.jl \
+                        — rerun the job once the service is back.
+                        """ exception = (err, catch_backtrace())
+                    @test_broken "S3 credentials require $(host), which is unreachable" ==
+                                 ""
+                end
             end
         end
     end

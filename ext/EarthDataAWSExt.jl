@@ -51,15 +51,17 @@ function _fetch_s3_credentials(daac)
 end
 
 """
-    get_s3_credentials(daac="nsidc") -> AWSS3.AWSCredentials
+    get_s3_credentials(daac="nsidc"; deadline=Inf) -> AWSS3.AWSCredentials
 
 Fetch temporary in-region S3 credentials from a DAAC's `/s3credentials` endpoint.
 
 Requires Earthdata Login credentials (see `netrc!`). Retries while the endpoint fails
-temporarily; a 401/403 is permanent and raises immediately.
+temporarily; a 401/403 is permanent and raises immediately. `deadline` is an absolute
+`time()` bounding the retrying, for a caller that would rather fail than wait out an
+outage.
 """
-function EarthData.get_s3_credentials(daac="nsidc")
-    EarthData.with_retries(context="S3 credentials") do
+function EarthData.get_s3_credentials(daac="nsidc"; deadline::Float64=Inf)
+    EarthData.with_retries(context="S3 credentials"; deadline) do
         _fetch_s3_credentials(daac)
     end
 end
@@ -73,11 +75,15 @@ function set_env!(creds::AWSS3.AWSCredentials, env=ENV)
     env["AWS_SESSION_EXPIRES"] = string(creds.expiry)
 end
 
-function EarthData.create_aws_config(daac="nsidc", region="us-west-2")
+function EarthData.create_aws_config(
+    daac="nsidc",
+    region="us-west-2";
+    deadline::Float64=Inf,
+)
     expiration = DateTime(get(ENV, "AWS_SESSION_EXPIRES", typemin(DateTime)))
     if expiration < Dates.now(UTC)
         # If credentials are expired or unset, get new ones
-        creds = EarthData.get_s3_credentials(daac)
+        creds = EarthData.get_s3_credentials(daac; deadline)
         set_env!(creds)
     else
         # Otherwise, get them from the environment
