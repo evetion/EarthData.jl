@@ -44,7 +44,8 @@ end
 
 @testset "Temporal parameters in a search" begin
     # Every date-valued CMR parameter goes through the conversion, not just `temporal`.
-    for key in EarthData.temporal_params
+    # `updated_since` is excluded: CMR takes a single instant there and rejects a range.
+    for key in EarthData.range_date_params
         # Two of the eight are collection-only (`has_granules_*_at`) and two granule-only
         # (`production_date`, `equator_crossing_date`), so each has to go to the endpoint
         # that accepts it — with a matching response body to parse.
@@ -61,6 +62,25 @@ end
         @test occursin(
             "$(key)=$(HTTP.URIs.escapeuri("2019-04-18T00:00:00Z,2019-04-20T00:00:00Z"))",
             requests[1].body,
+        )
+    end
+
+    # `updated_since` means "revised after", so CMR takes one instant and answers a pair
+    # with "updated_since datetime is invalid". Sending the range is a wasted round-trip.
+    for key in EarthData.instant_date_params
+        requests = []
+        responses = [HTTP.Response(200, [], cmr_response(["G1"], "granule"))]
+        EarthData.granules(;
+            key => Date(2019, 4, 18),
+            requester=recording_requester(responses, requests),
+        )
+        @test occursin(
+            "$(key)=$(HTTP.URIs.escapeuri("2019-04-18T00:00:00Z"))",
+            requests[1].body,
+        )
+        @test_throws "takes a single date, not a range" EarthData.cmr_temporal(
+            key,
+            (Date(2019, 4, 18), Date(2019, 4, 20)),
         )
     end
 end

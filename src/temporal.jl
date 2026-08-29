@@ -18,9 +18,10 @@ Strings pass through untouched, so existing calls are unaffected. A vector becom
 repeated parameter, which CMR reads as the union.
 """
 
-const temporal_params = (
+# CMR takes a range for most of the date parameters but a single instant for
+# `updated_since`, which answers a range with "updated_since datetime is invalid".
+const range_date_params = (
     :temporal,
-    :updated_since,
     :created_at,
     :revision_date,
     :production_date,
@@ -28,6 +29,10 @@ const temporal_params = (
     :has_granules_created_at,
     :has_granules_revised_at,
 )
+
+const instant_date_params = (:updated_since,)
+
+const temporal_params = (range_date_params..., instant_date_params...)
 
 # CMR wants UTC with a `Z`. A `Date` is midnight; a `DateTime` is taken as already UTC,
 # since CMR has no way to read a local offset. `Dates.ISODateTimeFormat` is not a
@@ -56,6 +61,12 @@ cmr_temporal(param::Symbol, ::Tuple{Nothing,Nothing}) = throw(
 )
 
 function cmr_temporal(param::Symbol, (start, stop)::Tuple{TemporalBound,TemporalBound})
+    param in instant_date_params && throw(
+        ArgumentError(
+            "`$(param)` takes a single date, not a range; CMR reads it as \"revised since\" " *
+            "and rejects a pair. Use `revision_date` for a range.",
+        ),
+    )
     isnothing(start) ||
         isnothing(stop) ||
         DateTime(start) <= DateTime(stop) ||
