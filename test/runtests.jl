@@ -10,6 +10,7 @@ include("retry.jl")
 include("spatial.jl")  # uses search.jl's fake requester
 include("system.jl")  # likewise
 include("temporal.jl")  # likewise
+include("params.jl")  # likewise
 include("geointerface.jl")
 include("auth.jl")
 

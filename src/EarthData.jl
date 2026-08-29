@@ -22,6 +22,7 @@ include("stub.jl")  # empty methods that are actually defined in extensions
 include("retry.jl")
 include("spatial.jl")
 include("temporal.jl")
+include("params.jl")
 include("geointerface.jl")
 
 const granule_version = "v1.6.6"
@@ -341,24 +342,47 @@ function cmr_headers(search_after=nothing)
     return headers
 end
 
+"""
+    cmr_query(query::Dict; page_num, page_size) -> Vector{Pair{String,Any}}
+
+The wire form of `query`, with each keyword converted by the family it belongs to.
+
+Pairs rather than a `Dict`: `passes` becomes several indexed parameters
+(`passes[0][pass]`, `passes[0][tiles]`, `passes[1][pass]`, …) rather than one value, and
+`HTTP.URIs.escapeuri` encodes a pair vector correctly where a nested `Dict` collapses to
+`passes=0=pass=1`.
+"""
 function cmr_query(query::Dict; page_num, page_size)
-    q = Dict{String,Any}("page_size" => page_size)
+    q = Pair{String,Any}["page_size" => page_size]
     # CMR rejects `page_num` once a `CMR-Search-After` header is in play, so the caller
     # passes `page_num=nothing` for every page after the first.
-    isnothing(page_num) || (q["page_num"] = page_num)
+    isnothing(page_num) || push!(q, "page_num" => page_num)
+
+    # A pass number identifies a granule only within a cycle, so CMR requires exactly one
+    # `cycle` alongside and answers "Cycle value must be provided when searching with
+    # passes" without it.
+    if haskey(query, :passes) || haskey(query, "passes")
+        cycle = get(() -> get(query, "cycle", nothing), query, :cycle)
+        isnothing(cycle) && throw(
+            ArgumentError(
+                "`passes` needs a `cycle` as well; a pass number identifies a granule only " *
+                "within a cycle.",
+            ),
+        )
+        # CMR: "There can only be one cycle value when searching with passes".
+        cycle isa AbstractVector &&
+            length(cycle) != 1 &&
+            throw(
+                ArgumentError(
+                    "`passes` allows exactly one `cycle`; got $(length(cycle)).",
+                ),
+            )
+    end
+
     for (k, v) in query
         isnothing(v) && continue
-        key = string(k)
-        # Spatial parameters also accept geometries and temporal ones dates; everything
-        # else is passed on as given.
-        sym = Symbol(key)
-        q[key] = if sym in spatial_params
-            cmr_spatial(sym, v)
-        elseif sym in temporal_params
-            cmr_temporal(sym, v)
-        else
-            v
-        end
+        sym = Symbol(k)
+        append!(q, cmr_pairs(param_family(sym), sym, v))
     end
     return q
 end

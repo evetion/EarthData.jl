@@ -95,6 +95,11 @@ function cmr_response(ids, concept_type; hits=length(ids))
     )
 end
 
+# The query is a pair vector rather than a `Dict`, since `passes` becomes several indexed
+# parameters. These read one parameter out of it.
+query_value(query, key) = first(v for (k, v) in query if k == key)
+has_query_key(query, key) = any(((k, _),) -> k == key, query)
+
 function recording_requester(responses, requests)
     function requester(
         method,
@@ -180,9 +185,9 @@ end
         requester=recording_requester(responses, requests),
     )
 
-    @test requests[1].query["page_num"] == 1
-    @test !haskey(requests[2].query, "page_num")
-    @test requests[2].query["page_size"] == 1
+    @test query_value(requests[1].query, "page_num") == 1
+    @test !has_query_key(requests[2].query, "page_num")
+    @test query_value(requests[2].query, "page_size") == 1
 end
 
 @testset "CMR GET compatibility" begin
@@ -200,8 +205,8 @@ end
     @test getproperty.(result, :GranuleUR) == ["G1"]
     @test requests[1].method == "GET"
     @test requests[1].body === nothing
-    @test requests[1].query["short_name"] == "TEST"
-    @test requests[1].query["page_size"] == 10
+    @test query_value(requests[1].query, "short_name") == "TEST"
+    @test query_value(requests[1].query, "page_size") == 10
 end
 
 @testset "Granule spatial parameters" begin
