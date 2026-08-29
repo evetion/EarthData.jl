@@ -1,7 +1,7 @@
 name = "EarthData"
 uuid = "0ce7a1f8-0645-46c2-a0bb-6c09c29d93e9"
-authors = ["Maarten Pronk <git@evetion.nl> and contributors"]
 version = "0.2.0"
+authors = ["Maarten Pronk <git@evetion.nl> and contributors"]
 
 [deps]
 Aria2_jll = "9ab3bdc3-1250-5043-8fac-ac7e82d2cbc9"
@@ -23,12 +23,12 @@ AWSS3 = "1c724243-ef5b-51ab-93f4-b0a88ac62a95"
 EarthDataAWSExt = "AWSS3"
 
 [compat]
-Aria2_jll = "1"
 AWSS3 = "0.11"
+Aria2_jll = "1"
 Downloads = "1"
 Extents = "0.1"
 GeoInterface = "1.6"
-HTTP = "1.9"
+HTTP = "1.9, 2"
 JSON3 = "1.13"
 Printf = "1"
 StructTypes = "1.10"
