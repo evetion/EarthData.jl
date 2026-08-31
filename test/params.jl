@@ -3,65 +3,73 @@ using Test
 
 # Every rejection below is a CMR HTTP 400 without the conversion, except where noted. The
 # wording in each `@test_throws` is what the user has to act on.
+#
+# A parameter is checked in two steps, so the tests are too: `GranuleRequest` /
+# `CollectionRequest` normalize and reject what the user wrote, and `cmr_pairs` turns a
+# stored field into what goes on the wire.
+
+# The value a request stores for one keyword, and the pairs it becomes.
+granule_field(key, value) = getfield(EarthData.GranuleRequest(; key => value), key)
+collection_field(key, value) = getfield(EarthData.CollectionRequest(; key => value), key)
+granule_wire(key, value) = EarthData.cmr_pairs(key, granule_field(key, value))
 
 @testset "Boolean parameters" begin
-    @test EarthData.cmr_bool(:downloadable, true) == "true"
-    @test EarthData.cmr_bool(:downloadable, false) == "false"
-    @test isnothing(EarthData.cmr_bool(:downloadable, nothing))
+    @test granule_wire(:downloadable, true) == ["downloadable" => "true"]
+    @test granule_wire(:downloadable, false) == ["downloadable" => "false"]
+    @test isnothing(granule_field(:downloadable, nothing))
 
     # A string is the escape hatch, as in every other family. CMR accepts spellings this
     # module does not build — `TRUE` and `True` among them — so the string is passed on and
     # CMR judges it, rather than being checked against a list stricter than the service.
-    @test EarthData.cmr_bool(:downloadable, "true") == "true"
-    @test EarthData.cmr_bool(:downloadable, "TRUE") == "TRUE"
-    @test EarthData.cmr_bool(:downloadable, "unset") == "unset"
+    @test granule_wire(:downloadable, "true") == ["downloadable" => "true"]
+    @test granule_wire(:downloadable, "TRUE") == ["downloadable" => "TRUE"]
+    @test granule_wire(:downloadable, "unset") == ["downloadable" => "unset"]
 
-    # `1` is not a synonym for `true` here — CMR rejects it outright.
-    @test_throws "takes `true` or `false`" EarthData.cmr_bool(:downloadable, 1)
-    @test_throws "takes `true` or `false`" EarthData.cmr_bool(:downloadable, 42)
+    # `1` is not a synonym for `true` here — CMR rejects it outright, so `BoolParam` has no
+    # `Integer` member and the field type is the whole check.
+    @test_throws "takes Bool or String" EarthData.GranuleRequest(downloadable=1)
+    @test_throws "takes Bool or String" EarthData.GranuleRequest(downloadable=42)
 
     # Naming the parameter matters: the message is the only clue which keyword was wrong.
-    @test_throws "cloud_hosted" EarthData.cmr_bool(:cloud_hosted, 0)
+    @test_throws "cloud_hosted" EarthData.CollectionRequest(cloud_hosted=0)
+    # And the field docstring says what the parameter is, so the message explains itself.
+    @test_throws "held in the cloud" EarthData.CollectionRequest(cloud_hosted=0)
 end
 
 @testset "Numeric range parameters" begin
     # CMR answers a single value with "The min and max values of a numeric range cannot both
     # be nil", which does not say what to do about it.
-    @test_throws "takes a (min, max) range" EarthData.cmr_numeric_range(:cloud_cover, 5)
+    @test_throws "takes a (min, max) range" EarthData.GranuleRequest(cloud_cover=5)
 
-    @test EarthData.cmr_numeric_range(:cloud_cover, (0.2, nothing)) == "0.2,"
-    @test EarthData.cmr_numeric_range(:cloud_cover, (nothing, 30)) == ",30"
-    @test EarthData.cmr_numeric_range(:cloud_cover, (0.5, 20.5)) == "0.5,20.5"
-    @test EarthData.cmr_numeric_range(:equator_crossing_longitude, (-10, 10)) == "-10,10"
+    @test granule_wire(:cloud_cover, (0.2, nothing)) == ["cloud_cover" => "0.2,"]
+    @test granule_wire(:cloud_cover, (nothing, 30)) == ["cloud_cover" => ",30"]
+    @test granule_wire(:cloud_cover, (0.5, 20.5)) == ["cloud_cover" => "0.5,20.5"]
+    @test granule_wire(:equator_crossing_longitude, (-10, 10)) ==
+          ["equator_crossing_longitude" => "-10,10"]
 
     # A range with no bounds is not a search, and a backwards one silently matches nothing.
-    @test_throws "needs at least one bound" EarthData.cmr_numeric_range(
-        :cloud_cover,
-        (nothing, nothing),
+    @test_throws "needs at least one bound" EarthData.GranuleRequest(
+        cloud_cover=(nothing, nothing),
     )
-    @test_throws "ends below where it starts" EarthData.cmr_numeric_range(
-        :cloud_cover,
-        (30, 10),
+    @test_throws "ends below where it starts" EarthData.GranuleRequest(
+        cloud_cover=(30, 10),
     )
 
     # `string(1e-5)` is "1.0e-5", which CMR rejects; `coord_string` writes plain decimals.
-    @test EarthData.cmr_numeric_range(:cloud_cover, (1e-5, nothing)) == "0.00001,"
+    @test granule_wire(:cloud_cover, (1e-5, nothing)) == ["cloud_cover" => "0.00001,"]
 
-    @test EarthData.cmr_numeric_range(:cloud_cover, "0.2,30") == "0.2,30"
-    @test_throws "takes a (min, max) tuple" EarthData.cmr_numeric_range(
-        :cloud_cover,
-        Dict(),
-    )
+    @test granule_wire(:cloud_cover, "0.2,30") == ["cloud_cover" => "0.2,30"]
+    @test_throws ArgumentError EarthData.GranuleRequest(cloud_cover=Dict())
 end
 
 @testset "Positive integer parameters" begin
-    @test EarthData.cmr_positive_int(:cycle, 1) == "1"
-    @test EarthData.cmr_positive_int(:cycle, "1") == "1"
+    @test granule_wire(:cycle, 1) == ["cycle" => "1"]
+    @test granule_wire(:cycle, "1") == ["cycle" => "1"]
 
     # CMR: "Cycle must be a positive integer, but was [1.5]".
-    @test_throws "must be a positive integer" EarthData.cmr_positive_int(:cycle, 1.5)
-    @test_throws "must be a positive integer" EarthData.cmr_positive_int(:cycle, -1)
-    @test_throws "must be a positive integer" EarthData.cmr_positive_int(:cycle, 0)
+    @test_throws "must be a positive integer" EarthData.GranuleRequest(cycle=1.5)
+    @test_throws "must be a positive integer" EarthData.GranuleRequest(cycle=-1)
+    @test_throws "must be a positive integer" EarthData.GranuleRequest(cycle=0)
 end
 
 @testset "Pass and tiles" begin
@@ -75,12 +83,20 @@ end
     @test_throws "positive integer" EarthData.Pass(-1)
     @test_throws "positive integer" EarthData.Pass(0)
 
+    # A pass number identifies a granule only within a cycle, so every request below carries
+    # one; `cycle` on its own is tested above.
+    passes_field(value) = EarthData.GranuleRequest(cycle=1, passes=value).passes
+    passes_wire(value) = EarthData.cmr_pairs(:passes, passes_field(value))
+
+    # A bare number is one pass, so `passes=1` needs no wrapper.
+    @test passes_field(1) == [EarthData.Pass(1)]
+
     # CMR indexes each pass separately rather than repeating one key, which is why the query
     # is a pair vector.
-    @test EarthData.cmr_passes(1) == ["passes[0][pass]" => "1"]
-    @test EarthData.cmr_passes(EarthData.Pass(1, ["1L", "2F"])) ==
+    @test passes_wire(1) == ["passes[0][pass]" => "1"]
+    @test passes_wire(EarthData.Pass(1, ["1L", "2F"])) ==
           ["passes[0][pass]" => "1", "passes[0][tiles]" => "1L,2F"]
-    @test EarthData.cmr_passes([EarthData.Pass(1, ["1L"]), 2]) == [
+    @test passes_wire([EarthData.Pass(1, ["1L"]), 2]) == [
         "passes[0][pass]" => "1",
         "passes[0][tiles]" => "1L",
         "passes[1][pass]" => "2",
@@ -88,41 +104,107 @@ end
 end
 
 @testset "Text parameters" begin
-    @test EarthData.cmr_text(:version, "061") == "061"
-    @test EarthData.cmr_text(:version, SubString("v061", 2)) == "061"
+    @test granule_field(:version, "061") == "061"
+    # A `SubString` is not a `String`, so it is normalized rather than rejected.
+    @test granule_field(:version, SubString("v061", 2)) == "061"
     # A `Symbol` is a reasonable way to write a fixed vocabulary, and round-trips exactly —
     # `Symbol("061")` included.
-    @test EarthData.cmr_text(:day_night_flag, :day) == "day"
-    @test EarthData.cmr_text(:version, Symbol("061")) == "061"
-    @test isnothing(EarthData.cmr_text(:version, nothing))
+    @test granule_field(:day_night_flag, :day) == "day"
+    @test granule_field(:version, Symbol("061")) == "061"
+    @test isnothing(granule_field(:version, nothing))
     # CMR reads a repeated parameter as the union, so a vector stays legal.
-    @test EarthData.cmr_text(:short_name, ["MCD43A3", "ATL03"]) == ["MCD43A3", "ATL03"]
+    @test granule_field(:short_name, ["MCD43A3", "ATL03"]) == ["MCD43A3", "ATL03"]
+    @test granule_wire(:short_name, ["MCD43A3", "ATL03"]) ==
+          ["short_name" => "MCD43A3", "short_name" => "ATL03"]
 
     # The silent one. `version=061` in Julia is the integer 61, and CMR answers 0 hits for
-    # "61" where "061" has millions — no error, just nothing found.
-    @test_throws "takes text, not the number 61" EarthData.cmr_text(:version, 61)
-    @test_throws "zero" EarthData.cmr_text(:version, 61)
-    @test_throws ArgumentError EarthData.cmr_text(:short_name, 123)
-    @test_throws ArgumentError EarthData.cmr_text(:day_night_flag, true)
-    @test_throws "string or a `Symbol`" EarthData.cmr_text(:short_name, Dict())
+    # "61" where "061" has millions — no error, just nothing found. The field docstring
+    # carries the zero-padding warning, so the message says why a number cannot work.
+    @test_throws "takes text, not the number 61" EarthData.GranuleRequest(version=61)
+    @test_throws "zero-padded" EarthData.GranuleRequest(version=61)
+    @test_throws ArgumentError EarthData.GranuleRequest(short_name=123)
+    @test_throws ArgumentError EarthData.GranuleRequest(day_night_flag=true)
+    @test_throws "takes Vector{String} or String" EarthData.GranuleRequest(
+        short_name=Dict(),
+    )
 
     # CMR pattern-matches `day_night_flag` and accepts a value outside day/night/unspecified,
     # so the type stays `String` rather than becoming an enumeration the service does not
     # enforce.
-    @test EarthData.cmr_text(:day_night_flag, "sideways") == "sideways"
+    @test granule_field(:day_night_flag, "sideways") == "sideways"
 
-    @test EarthData.param_family(:version) isa EarthData.TextParam
+    @test fieldtype(EarthData.GranuleRequest, :version) === EarthData.TextParam
 
     # Not text, each for its own reason CMR gives:
     # `processing_level_id` holds the bare digits, so a number is the right value — "2"
     # matches thousands of collections and "02" matches none.
-    @test EarthData.param_family(:processing_level_id) isa EarthData.FreeParam
+    @test collection_field(:processing_level_id, 2) == 2
     # `attribute` and `science_keywords` need a nested key: "Parameter [science_keywords]
     # must include a nested key".
-    @test EarthData.param_family(:attribute) isa EarthData.FreeParam
-    @test EarthData.param_family(:science_keywords) isa EarthData.FreeParam
-    # "Parameter [variables] was not recognized."
-    @test EarthData.param_family(:variables) isa EarthData.FreeParam
+    for key in (:attribute, :science_keywords, :variables)
+        @test fieldtype(EarthData.CollectionRequest, key) === EarthData.FreeParam
+    end
+    # `two_d_coordinate_system` is `name:coords`, so it is passed on as written.
+    @test fieldtype(EarthData.GranuleRequest, :two_d_coordinate_system) ===
+          EarthData.FreeParam
+end
+
+@testset "Every parameter is declared once" begin
+    requests = (EarthData.GranuleRequest, EarthData.CollectionRequest)
+
+    # A field's type is its family, and its docstring is what the parameter means. Both are
+    # what the error messages and the derived family tuples are built from, so a field
+    # missing either is a parameter that documents itself nowhere.
+    known = (
+        EarthData.TextParam,
+        EarthData.BoolParam,
+        EarthData.NumericRangeParam,
+        EarthData.PositiveIntParam,
+        EarthData.PassesParam,
+        EarthData.DateParam,
+        EarthData.DateRangeParam,
+        EarthData.SpatialParam,
+    )
+    for R in requests
+        docs = EarthData.fielddocs(R)
+        for name in fieldnames(R)
+            @test fieldtype(R, name) in known
+            @test haskey(docs, name)
+            @test !isempty(strip(docs[name]))
+        end
+    end
+
+    # The families are read off the field types rather than listed a second time, so every
+    # name in one is a field of a request, and the two agree on which.
+    for (family, T) in (
+        (EarthData.text_params, EarthData.TextParam),
+        (EarthData.bool_params, EarthData.BoolParam),
+        (EarthData.numeric_range_params, EarthData.NumericRangeParam),
+        (EarthData.positive_int_params, EarthData.PositiveIntParam),
+        (EarthData.range_date_params, EarthData.DateRangeParam),
+        (EarthData.instant_date_params, EarthData.DateParam),
+    )
+        @test !isempty(family)
+        for name in family
+            @test any(R -> get(Dict(n => fieldtype(R, n) for n in fieldnames(R)), name,
+                               nothing) === T, requests)
+        end
+    end
+
+    # `updated_since` is the one date parameter CMR takes as a single instant, so it must not
+    # also be in the range family.
+    @test EarthData.instant_date_params == (:updated_since,)
+    @test isempty(intersect(EarthData.range_date_params, EarthData.instant_date_params))
+
+    # Every parameter is reachable with no arguments at all, i.e. each field has a default.
+    @test EarthData.GranuleRequest() isa EarthData.GranuleRequest
+    @test EarthData.CollectionRequest() isa EarthData.CollectionRequest
+
+    # A misspelled keyword names itself, rather than listing every field of the request.
+    @test_throws "Unknown keyword argument(s): nonsense" EarthData.granules(
+        nonsense=1,
+        requester=recording_requester([], []),
+    )
 end
 
 @testset "Parameters in a search" begin

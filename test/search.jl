@@ -139,7 +139,7 @@ end
 
     result = EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         page_size=2,
         all=true,
@@ -177,7 +177,7 @@ end
 
     EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         page_size=1,
         all=true,
@@ -196,7 +196,7 @@ end
 
     result = EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         method=:GET,
         requester=recording_requester(responses, requests),
@@ -257,7 +257,7 @@ end
     granule = only(
         EarthData.request(
             "https://example.test/granules",
-            Dict("short_name" => "TEST"),
+            EarthData.GranuleRequest(short_name="TEST"),
             EarthData.Granules.UMM_G;
             requester=recording_requester(responses, requests),
         ),
@@ -296,7 +296,7 @@ end
     granule = only(
         EarthData.request(
             "https://example.test/granules",
-            Dict("short_name" => "TEST"),
+            EarthData.GranuleRequest(short_name="TEST"),
             EarthData.Granules.UMM_G;
             requester=recording_requester(responses, requests),
         ),
@@ -349,7 +349,7 @@ end
     responses = [HTTP.Response(200, [], cmr_response(["G1", "G2"], "granule"))]
     granules = EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         requester=recording_requester(responses, requests),
     )

@@ -68,8 +68,9 @@ end
 `value` as the `name` field of request `R`, or an `ArgumentError` naming the field and
 quoting its docstring.
 
-`Base.convert` cannot see which field it is converting, so the naming happens here rather
-than in [`cmr_convert`](@ref), whose methods only describe the family.
+The field name is not an argument of `Base.convert`, which receives only the field type and
+the value, so naming the parameter has to happen here rather than in [`cmr_convert`](@ref) —
+whose methods describe a family shared by many fields.
 """
 function convert_field(::Type{R}, name::Symbol, value) where {R<:AbstractRequest}
     isnothing(value) && return nothing
