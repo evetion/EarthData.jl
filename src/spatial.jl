@@ -13,12 +13,16 @@ geometries: an `Extents.Extent`, or anything implementing GeoInterface.
 | `polygon`      | polygon, linear ring                      | closed counter-clockwise ring |
 | `circle`       | `(lon, lat, radius_m)`, `(point, radius)` | `lon,lat,radius`          |
 
-Strings pass through untouched, so existing calls are unaffected. A vector of geometries
-becomes a repeated parameter, which CMR reads as their union.
+Strings pass through untouched. A vector of geometries becomes a repeated parameter, which
+CMR reads as their union.
 
 Each keyword takes only the geometry that matches it. Reducing a polygon to its bounding box,
 say, would search a larger area than was asked for, so a mismatch is an error that names the
 right keyword instead.
+
+All five parameters accept the same Julia types, so their fields share one type
+([`SpatialParam`](@ref)) and this is the one family that cannot be told apart by `fieldtype`.
+`spatial_params` lists them, and conversion dispatches on the keyword as well as the value.
 """
 
 const spatial_params = (:bounding_box, :point, :line, :polygon, :circle)
