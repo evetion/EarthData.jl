@@ -44,9 +44,10 @@ function cmr_convert(
     return (start, stop)
 end
 
-# A vector of dates is a repeated parameter, which CMR reads as the union.
+# A vector is a repeated parameter, which CMR reads as the union. Each element converts as a
+# single constraint would, so a vector takes the instants, ranges and strings a scalar does.
 cmr_convert(::Type{DateRangeParam}, value::AbstractVector) =
-    String[cmr_datetime(v) for v in value]
+    DateRangeValue[cmr_convert(DateRangeParam, v) for v in value]
 
 # A `StepRange` of dates is an `AbstractVector`, so it would otherwise become one clause per
 # element — 121 of them for `Date(2019,1,1):Day(1):Date(2019,5,1)`. Its endpoints are what a

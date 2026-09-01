@@ -33,6 +33,27 @@ wire(key, value) = only(EarthData.cmr_pairs(key, stored(key, value)))
         stored(:temporal, [Date(2019, 1, 1), Date(2020, 1, 1)]),
     ) == ["temporal" => "2019-01-01T00:00:00Z", "temporal" => "2020-01-01T00:00:00Z"]
 
+    # Each element of that vector converts as a lone constraint does, so a vector takes the
+    # ranges and hand-written strings a single value takes. Its element type holds the Julia
+    # values, so a stored vector reads back the way it was written.
+    @test stored(:temporal, [Date(2019, 1, 1)]) == [Date(2019, 1, 1)]
+    @test EarthData.cmr_pairs(
+        :temporal,
+        stored(:temporal, [(Date(2019, 1, 1), Date(2019, 2, 1))]),
+    ) == ["temporal" => "2019-01-01T00:00:00Z,2019-02-01T00:00:00Z"]
+    @test EarthData.cmr_pairs(
+        :temporal,
+        stored(:temporal, ["2019-04-18T00:00:00Z,", "2020-01-01T00:00:00Z,"]),
+    ) == ["temporal" => "2019-04-18T00:00:00Z,", "temporal" => "2020-01-01T00:00:00Z,"]
+    # Mixed forms in one vector, since each element is converted on its own.
+    @test EarthData.cmr_pairs(
+        :temporal,
+        stored(:temporal, [Date(2019, 1, 1), (Date(2020, 1, 1), nothing)]),
+    ) == ["temporal" => "2019-01-01T00:00:00Z", "temporal" => "2020-01-01T00:00:00Z,"]
+
+    # An element that is not a constraint is still rejected.
+    @test_throws ArgumentError EarthData.GranuleRequest(temporal=[Date(2019, 1, 1), 2019])
+
     # A `StepRange` of dates is an `AbstractVector`, so it would become one clause per
     # element — 121 of them here. Ask for the endpoints rather than send a union nobody
     # asked for.

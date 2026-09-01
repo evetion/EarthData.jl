@@ -58,18 +58,22 @@ range here with "updated_since datetime is invalid".
 const DateParam = Union{Nothing,String,Date,DateTime}
 
 """
+    DateRangeValue
+
+One temporal constraint: an instant, a `(start, stop)` range, or the ISO 8601 text itself.
+
+The element type of a [`DateRangeParam`](@ref) vector, so a repeated parameter holds the same
+Julia values a single one does rather than the wire form.
+"""
+const DateRangeValue = Union{Date,DateTime,String,Tuple{TemporalBound,TemporalBound}}
+
+"""
     DateRangeParam
 
 A `Date`/`DateTime`, or a `(start, stop)` range with either side `nothing` for an open bound.
+A vector of either is a repeated parameter, which CMR reads as the union.
 """
-const DateRangeParam = Union{
-    Nothing,
-    String,
-    Date,
-    DateTime,
-    Tuple{TemporalBound,TemporalBound},
-    Vector{String},
-}
+const DateRangeParam = Union{Nothing,DateRangeValue,Vector{DateRangeValue}}
 
 """
     Pass(pass::Integer, tiles=String[])
