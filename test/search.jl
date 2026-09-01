@@ -95,6 +95,11 @@ function cmr_response(ids, concept_type; hits=length(ids))
     )
 end
 
+# The parameters of request `R` declared with field type `T`, so a test can cover a whole
+# family without listing its members a second time. `SpatialParam` and `FreeParam` are both
+# `Any`, so those two are not distinguishable this way.
+param_names(R::Type, T::Type) = Tuple(n for n in fieldnames(R) if fieldtype(R, n) === T)
+
 # The query is a pair vector rather than a `Dict`, since `passes` becomes several indexed
 # parameters. These read one parameter out of it.
 query_value(query, key) = first(v for (k, v) in query if k == key)

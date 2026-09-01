@@ -1,9 +1,9 @@
 """
 The Julia types CMR's search parameters accept, one per family.
 
-These are the field types of [`GranuleRequest`](@ref) and [`CollectionRequest`](@ref), and
-each family's members are read back off those fields by `param_names`, so a parameter is
-named in exactly one place. `params.jl` holds the conversion methods keyed on these types.
+These are the field types of [`GranuleRequest`](@ref) and [`CollectionRequest`](@ref), so a
+parameter is named in exactly one place and its family follows from its declaration.
+`params.jl` holds the conversion methods keyed on these types.
 
 `Nothing` is in every one: omitting a parameter is how you search without filtering on it.
 A `String` is in every one too, as the escape hatch for a value the other types cannot

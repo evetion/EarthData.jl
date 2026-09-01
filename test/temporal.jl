@@ -58,14 +58,13 @@ end
 @testset "Temporal parameters in a search" begin
     # Every date-valued CMR parameter goes through the conversion, not just `temporal`.
     # `updated_since` is excluded: CMR takes a single instant there and rejects a range.
-    for key in EarthData.range_date_params
-        # Two of the eight are collection-only (`has_granules_*_at`) and two granule-only
-        # (`production_date`, `equator_crossing_date`), so each has to go to the endpoint
-        # that accepts it — with a matching response body to parse.
-        search, id, kind =
-            key in fieldnames(EarthData.GranuleRequest) ?
-            (EarthData.granules, "G1", "granule") :
-            (EarthData.collections, "C1", "collection")
+    # Each endpoint has range parameters the other does not — `has_granules_*_at` is
+    # collection-only, `production_date` and `equator_crossing_date` granule-only — so each
+    # is swept against the search that accepts it, with a matching response body to parse.
+    for (R, search, id, kind) in (
+        (EarthData.GranuleRequest, EarthData.granules, "G1", "granule"),
+        (EarthData.CollectionRequest, EarthData.collections, "C1", "collection"),
+    ), key in param_names(R, EarthData.DateRangeParam)
         requests = []
         responses = [HTTP.Response(200, [], cmr_response([id], kind))]
         search(;
@@ -80,7 +79,7 @@ end
 
     # `updated_since` means "revised after", so CMR takes one instant and answers a pair
     # with "updated_since datetime is invalid". Sending the range is a wasted round-trip.
-    for key in EarthData.instant_date_params
+    for key in param_names(EarthData.GranuleRequest, EarthData.DateParam)
         requests = []
         responses = [HTTP.Response(200, [], cmr_response(["G1"], "granule"))]
         EarthData.granules(;

@@ -143,13 +143,3 @@ cmr_pairs(param::Symbol, pass::Pass) = cmr_pairs(param, [pass])
 # An open bound is an empty field on its side of the comma.
 range_string((lo, hi), tostring) =
     string(isnothing(lo) ? "" : tostring(lo), ",", isnothing(hi) ? "" : tostring(hi))
-
-# Each family is read off the field types rather than listed a second time. The spatial
-# parameters share one field type, so they keep their own list in `spatial.jl`.
-const bool_params = param_names(BoolParam)
-const numeric_range_params = param_names(NumericRangeParam)
-const positive_int_params = param_names(PositiveIntParam)
-const text_params = param_names(TextParam)
-const range_date_params = param_names(DateRangeParam)
-const instant_date_params = param_names(DateParam)
-const temporal_params = (range_date_params..., instant_date_params...)

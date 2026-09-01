@@ -153,8 +153,8 @@ end
     requests = (EarthData.GranuleRequest, EarthData.CollectionRequest)
 
     # A field's type is its family, and its docstring is what the parameter means. Both are
-    # what the error messages and the derived family tuples are built from, so a field
-    # missing either is a parameter that documents itself nowhere.
+    # what conversion and the error messages are built from, so a field missing either is a
+    # parameter that documents itself nowhere.
     known = (
         EarthData.TextParam,
         EarthData.BoolParam,
@@ -174,27 +174,20 @@ end
         end
     end
 
-    # The families are read off the field types rather than listed a second time, so every
-    # name in one is a field of a request, and the two agree on which.
-    for (family, T) in (
-        (EarthData.text_params, EarthData.TextParam),
-        (EarthData.bool_params, EarthData.BoolParam),
-        (EarthData.numeric_range_params, EarthData.NumericRangeParam),
-        (EarthData.positive_int_params, EarthData.PositiveIntParam),
-        (EarthData.range_date_params, EarthData.DateRangeParam),
-        (EarthData.instant_date_params, EarthData.DateParam),
-    )
-        @test !isempty(family)
-        for name in family
-            @test any(R -> get(Dict(n => fieldtype(R, n) for n in fieldnames(R)), name,
-                               nothing) === T, requests)
-        end
+    # Every family is reached by at least one parameter, so none of these types is declared
+    # and then never used. `SpatialParam` is skipped: it and `FreeParam` are both `Any`, so
+    # `fieldtype` cannot tell them apart and `spatial_params` names the spatial ones instead.
+    for T in known
+        T === EarthData.SpatialParam && continue
+        @test any(R -> !isempty(param_names(R, T)), requests)
     end
 
-    # `updated_since` is the one date parameter CMR takes as a single instant, so it must not
-    # also be in the range family.
-    @test EarthData.instant_date_params == (:updated_since,)
-    @test isempty(intersect(EarthData.range_date_params, EarthData.instant_date_params))
+    # `updated_since` is the one date parameter CMR takes as a single instant, so on each
+    # request it is the whole instant family and is absent from the range family.
+    for R in requests
+        @test param_names(R, EarthData.DateParam) == (:updated_since,)
+        @test :updated_since ∉ param_names(R, EarthData.DateRangeParam)
+    end
 
     # Every parameter is reachable with no arguments at all, i.e. each field has a default.
     @test EarthData.GranuleRequest() isa EarthData.GranuleRequest

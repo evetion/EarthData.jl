@@ -3,9 +3,8 @@ The CMR search parameters, as the fields of [`GranuleRequest`](@ref) and
 [`CollectionRequest`](@ref).
 
 Each field's type is the set of Julia values that parameter accepts, and its docstring says
-what the parameter means. Both are the single description of that parameter: the family
-tuples in `params.jl` are derived from the field types, and an error message quotes the field
-docstring.
+what the parameter means. Both are the single description of that parameter: conversion
+dispatches on the field type, and an error message quotes the field docstring.
 
 A field holds the *Julia* value, converted only as far as normalizing a `Symbol` or a
 `SubString` to a `String`. The conversion to the wire form happens in [`cmr_pairs`](@ref)
@@ -17,24 +16,6 @@ wasted round-trip into an immediate error. The text parameters it does not valid
 a value of the wrong shape simply matches nothing — so there the type is what turns a silent
 empty result into an error.
 """
-
-"""
-    param_names(T::Type) -> Tuple{Vararg{Symbol}}
-
-The parameters typed `T` across both requests, so a family is read off the field types
-rather than listed a second time.
-
-`SpatialParam` and `FreeParam` are both `Any` and so are not distinguishable this way; see
-`spatial_params`.
-"""
-param_names(T::Type) = Tuple(
-    sort(
-        unique(
-            n for R in (GranuleRequest, CollectionRequest) for
-            n in fieldnames(R) if fieldtype(R, n) === T
-        ),
-    ),
-)
 
 """
     fielddocs(R::Type) -> Dict{Symbol,Any}
