@@ -101,6 +101,14 @@ end
         "passes[0][tiles]" => "1L",
         "passes[1][pass]" => "2",
     ]
+
+    # `==` compares the fields, so `hash` must agree with it: `tiles` is a `Vector`, and the
+    # default `hash` would fall back to object identity and put equal passes in two slots.
+    @test hash(EarthData.Pass(1, ["1L"])) == hash(EarthData.Pass(1, ["1L"]))
+    @test length(Set([EarthData.Pass(1, ["1L"]), EarthData.Pass(1, ["1L"])])) == 1
+    @test length(unique([EarthData.Pass(1, ["1L"]), EarthData.Pass(1, ["1L"])])) == 1
+    @test hash(EarthData.Pass(1, ["1L"])) != hash(EarthData.Pass(2, ["1L"]))
+    @test hash(EarthData.Pass(1, ["1L"])) != hash(EarthData.Pass(1, ["2L"]))
 end
 
 @testset "Text parameters" begin

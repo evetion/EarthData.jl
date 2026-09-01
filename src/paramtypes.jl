@@ -117,6 +117,10 @@ end
 
 Base.:(==)(a::Pass, b::Pass) = a.pass == b.pass && a.tiles == b.tiles
 
+# `tiles` is a `Vector`, so the default `hash` would go through object identity and two equal
+# passes would land in different `Set` slots.
+Base.hash(p::Pass, h::UInt) = hash(p.tiles, hash(p.pass, hash(:Pass, h)))
+
 """
     PassesParam
 
