@@ -157,6 +157,7 @@ function granules(;
         all,
         method,
         requester,
+        extra=query_params(; kwargs...),
     )
 end
 
@@ -188,6 +189,7 @@ function collections(;
         all,
         method,
         requester,
+        extra=query_params(; kwargs...),
     )
 end
 
@@ -243,8 +245,9 @@ function request(
     all=false,
     method=:POST,
     requester=HTTP.request,
+    extra=Pair{String,Any}[],
 )
-    q = cmr_query(query; page_num, page_size)
+    q = cmr_query(query; page_num, page_size, extra)
     vv = Vector{T}()
     search_after = nothing
     seen_search_after = Set{String}()
@@ -265,7 +268,7 @@ function request(
         # `page_num` and `CMR-Search-After` are mutually exclusive: sending both makes CMR
         # answer HTTP 400 "page_num is not allowed with search-after", so the first page's
         # `page_num` must be dropped before the second request goes out.
-        q = cmr_query(query; page_num=nothing, page_size)
+        q = cmr_query(query; page_num=nothing, page_size, extra)
     end
     vv
 end

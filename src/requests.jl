@@ -400,15 +400,21 @@ end
 """
     QueryParams
 
-CMR's paging and formatting parameters, which are not search filters. Accepted by
-[`granules`](@ref) and [`collections`](@ref) alongside the search keywords.
+CMR's paging and formatting parameters, which are not search filters.
+
+Accepted by [`granules`](@ref) and [`collections`](@ref) alongside the search keywords, and
+passed on as written. `page_size` and `page_num` are keywords of those two functions, since
+paging through all the results sets them itself; the rest are collected by
+[`query_params`](@ref).
+
+`sort_key` is not here: it is a field of both requests, and so is converted and documented
+like any other search parameter.
 """
 struct QueryParams
     page_size::Any
     page_num::Any
     offset::Any
     scroll::Any
-    sort_key::Any
     pretty::Any
     token::Any
     echo_compatible::Any
@@ -420,8 +426,8 @@ end
 The request `kwargs` describe, with a misspelled keyword named rather than listed among all
 of `R`'s fields, which is what `Base.@kwdef`'s own `MethodError` would do.
 
-A [`QueryParams`](@ref) keyword is accepted and dropped here: it is a paging parameter rather
-than a search filter, and `request` adds those itself.
+A [`QueryParams`](@ref) keyword is also accepted, and belongs to [`query_params`](@ref)
+rather than to the request.
 """
 function build_request(::Type{R}; kwargs...) where {R<:AbstractRequest}
     unknown = setdiff(keys(kwargs), fieldnames(R), fieldnames(QueryParams))
@@ -437,15 +443,38 @@ function build_request(::Type{R}; kwargs...) where {R<:AbstractRequest}
 end
 
 """
-    cmr_query(request::AbstractRequest; page_num, page_size) -> Vector{Pair{String,Any}}
+    query_params(; kwargs...) -> Vector{Pair{String,Any}}
 
-The wire form of `request`: every field that is set, converted by its type.
+The [`QueryParams`](@ref) keywords among `kwargs`, as the query parameters they become.
+
+These are not search filters, so they are not fields of a request and get no conversion —
+CMR reads them as written. `page_size` and `page_num` are excluded: [`cmr_query`](@ref) adds
+those from its own keywords, so that paging can drop `page_num` partway through.
+"""
+function query_params(; kwargs...)
+    paging = setdiff(fieldnames(QueryParams), (:page_size, :page_num))
+    return Pair{String,Any}[
+        string(name) => value for (name, value) in pairs(kwargs) if
+        name in paging && !isnothing(value)
+    ]
+end
+
+"""
+    cmr_query(request::AbstractRequest; page_num, page_size, extra) -> Vector{Pair{String,Any}}
+
+The wire form of `request`: every field that is set, converted by its type, plus the paging
+and formatting parameters `extra` carries from [`query_params`](@ref).
 
 Pairs rather than a `Dict`, since `passes` becomes several indexed parameters
 (`passes[0][pass]`, `passes[0][tiles]`, …) rather than one value, and `HTTP.URIs.escapeuri`
 encodes a pair vector correctly where a nested `Dict` collapses to `passes=0=pass=1`.
 """
-function cmr_query(request::AbstractRequest; page_num, page_size)
+function cmr_query(
+    request::AbstractRequest;
+    page_num,
+    page_size,
+    extra=Pair{String,Any}[],
+)
     query = Pair{String,Any}["page_size" => page_size]
     # CMR rejects `page_num` once a `CMR-Search-After` header is in play, so the caller
     # passes `page_num=nothing` for every page after the first.
@@ -455,5 +484,6 @@ function cmr_query(request::AbstractRequest; page_num, page_size)
         value = getfield(request, name)
         isnothing(value) || append!(query, cmr_pairs(name, value))
     end
+    append!(query, extra)
     return query
 end

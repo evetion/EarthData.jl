@@ -28,7 +28,9 @@ MCD43A3, while `061` is the integer `61` in Julia and finds nothing.
 ```
 
 Paging and formatting keywords are the fields of
-[`EarthData.QueryParams`](@ref).
+[`EarthData.QueryParams`](@ref). They are not search filters, so CMR reads them as written
+rather than through a parameter type. `page_size` and `page_num` are keywords of `granules`
+and `collections` themselves, since `all=true` pages through the results by setting them.
 
 ## Granules
 

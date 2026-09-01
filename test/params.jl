@@ -268,3 +268,49 @@ end
         @test isempty(requests)
     end
 end
+
+@testset "Paging and formatting parameters" begin
+    # These are not search filters, so they are not fields of a request — but they are
+    # accepted keywords, and CMR reads them as written. Accepting one and then dropping it
+    # would answer a different search than the one that was asked for: `offset` silently
+    # returns the first page, and `token` silently searches only the public holdings.
+    for (search, id, kind) in (
+        (EarthData.granules, "G1", "granule"),
+        (EarthData.collections, "C1", "collection"),
+    ), (key, value, expected) in (
+        (:offset, 100, "offset=100"),
+        (:scroll, true, "scroll=true"),
+        (:pretty, true, "pretty=true"),
+        (:token, "secret", "token=secret"),
+        (:echo_compatible, true, "echo_compatible=true"),
+    )
+        requests = []
+        responses = [HTTP.Response(200, [], cmr_response([id], kind))]
+        search(;
+            short_name="X",
+            key => value,
+            requester=recording_requester(responses, requests),
+        )
+        @test occursin(expected, requests[1].body)
+    end
+
+    # `page_size` and `page_num` are keywords of `granules`/`collections` rather than search
+    # parameters, so they are set once from there and not repeated by the paging keywords.
+    requests = []
+    responses = [HTTP.Response(200, [], cmr_response(["G1"], "granule"))]
+    EarthData.granules(;
+        short_name="X",
+        page_size=25,
+        page_num=3,
+        requester=recording_requester(responses, requests),
+    )
+    @test occursin("page_size=25", requests[1].body)
+    @test occursin("page_num=3", requests[1].body)
+    @test count("page_size=", requests[1].body) == 1
+    @test count("page_num=", requests[1].body) == 1
+
+    # `sort_key` is a field of both requests, so it converts like any other search parameter
+    # rather than passing through as a paging keyword.
+    @test :sort_key ∉ fieldnames(EarthData.QueryParams)
+    @test fieldtype(EarthData.GranuleRequest, :sort_key) === EarthData.TextParam
+end
