@@ -95,6 +95,16 @@ function cmr_response(ids, concept_type; hits=length(ids))
     )
 end
 
+# The parameters of request `R` declared with field type `T`, so a test can cover a whole
+# family without listing its members a second time. `SpatialParam` and `FreeParam` are both
+# `Any`, so those two are not distinguishable this way.
+param_names(R::Type, T::Type) = Tuple(n for n in fieldnames(R) if fieldtype(R, n) === T)
+
+# The query is a pair vector rather than a `Dict`, since `passes` becomes several indexed
+# parameters. These read one parameter out of it.
+query_value(query, key) = first(v for (k, v) in query if k == key)
+has_query_key(query, key) = any(((k, _),) -> k == key, query)
+
 function recording_requester(responses, requests)
     function requester(
         method,
@@ -134,7 +144,7 @@ end
 
     result = EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         page_size=2,
         all=true,
@@ -172,7 +182,7 @@ end
 
     EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         page_size=1,
         all=true,
@@ -180,9 +190,9 @@ end
         requester=recording_requester(responses, requests),
     )
 
-    @test requests[1].query["page_num"] == 1
-    @test !haskey(requests[2].query, "page_num")
-    @test requests[2].query["page_size"] == 1
+    @test query_value(requests[1].query, "page_num") == 1
+    @test !has_query_key(requests[2].query, "page_num")
+    @test query_value(requests[2].query, "page_size") == 1
 end
 
 @testset "CMR GET compatibility" begin
@@ -191,7 +201,7 @@ end
 
     result = EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         method=:GET,
         requester=recording_requester(responses, requests),
@@ -200,8 +210,8 @@ end
     @test getproperty.(result, :GranuleUR) == ["G1"]
     @test requests[1].method == "GET"
     @test requests[1].body === nothing
-    @test requests[1].query["short_name"] == "TEST"
-    @test requests[1].query["page_size"] == 10
+    @test query_value(requests[1].query, "short_name") == "TEST"
+    @test query_value(requests[1].query, "page_size") == 10
 end
 
 @testset "Granule spatial parameters" begin
@@ -252,7 +262,7 @@ end
     granule = only(
         EarthData.request(
             "https://example.test/granules",
-            Dict("short_name" => "TEST"),
+            EarthData.GranuleRequest(short_name="TEST"),
             EarthData.Granules.UMM_G;
             requester=recording_requester(responses, requests),
         ),
@@ -291,7 +301,7 @@ end
     granule = only(
         EarthData.request(
             "https://example.test/granules",
-            Dict("short_name" => "TEST"),
+            EarthData.GranuleRequest(short_name="TEST"),
             EarthData.Granules.UMM_G;
             requester=recording_requester(responses, requests),
         ),
@@ -344,7 +354,7 @@ end
     responses = [HTTP.Response(200, [], cmr_response(["G1", "G2"], "granule"))]
     granules = EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         requester=recording_requester(responses, requests),
     )

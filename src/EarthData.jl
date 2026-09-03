@@ -20,8 +20,12 @@ include("display.jl")
 include("show.jl")
 include("stub.jl")  # empty methods that are actually defined in extensions
 include("retry.jl")
+abstract type AbstractRequest end
+include("paramtypes.jl")
 include("spatial.jl")
 include("temporal.jl")
+include("requests.jl")
+include("params.jl")
 include("geointerface.jl")
 
 const granule_version = "v1.6.6"
@@ -82,8 +86,6 @@ granule_url(system::System=PROD) =
 collection_url(system::System=PROD) =
     search_url(system, "collections", collection_umm_json_version)
 
-abstract type AbstractRequest end
-
 struct Meta
     var"concept-type"::String
     var"concept-id"::String
@@ -121,144 +123,12 @@ responsetype(::Type{Granules.UMM_G}) = GranuleSearchResponse
 responsetype(::Type{Collections.UMM_C}) = CollectionSearchResponse
 
 """
-    GranuleRequest(; keyword=value, ...)
-
-As documented by https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html#granule-search-by-parameters.
-See `fieldnames(GranuleRequest)` for a list of all possible keywords.
-"""
-Base.@kwdef struct GranuleRequest <: AbstractRequest
-    collection_concept_id::Any
-    granule_ur::Any
-    readable_granule_name::Any
-    online_only::Any
-    downloadable::Any
-    browsable::Any
-    attribute::Any
-    polygon::Any
-    bounding_box::Any
-    point::Any
-    line::Any
-    circle::Any
-    equator_crossing_longitude::Any
-    equator_crossing_date::Any
-    updated_since::Any
-    revision_date::Any
-    created_at::Any
-    production_date::Any
-    cloud_cover::Any
-    platform::Any
-    instrument::Any
-    sensor::Any
-    project::Any
-    concept_id::Any
-    echo_granule_id::Any
-    echo_collection_id::Any
-    day_night_flag::Any
-    two_d_coordinate_system::Any
-    provider::Any
-    native_id::Any
-    short_name::Any
-    version::Any
-    entry_title::Any
-    entry_id::Any
-    temporal::Any
-    cycle::Any
-    passes::Any
-    sort_key::Any
-end
-
-
-"""
-    CollectionRequest(; keyword=value, ...)
-
-As documented by https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html#collection-search-by-parameters.
-"""
-Base.@kwdef struct CollectionRequest <: AbstractRequest
-    concept_id::Any
-    doi::Any
-    echo_collection_id::Any
-    provider_short_name::Any
-    entry_title::Any
-    entry_id::Any
-    archive_center::Any
-    data_center::Any
-    temporal::Any
-    project::Any
-    consortium::Any
-    updated_since::Any
-    created_at::Any
-    has_granules_created_at::Any
-    has_granules_revised_at::Any
-    revision_date::Any
-    processing_level_id::Any
-    platform::Any
-    instrument::Any
-    sensor::Any
-    spatial_keyword::Any
-    science_keywords::Any
-    two_d_coordinate_system_name::Any
-    collection_data_type::Any
-    granule_data_format::Any
-    online_only::Any
-    downloadable::Any
-    browsable::Any
-    keyword::Any
-    provider::Any
-    native_id::Any
-    short_name::Any
-    version::Any
-    tag_key::Any
-    variable_name::Any
-    variable_native_id::Any
-    variable_concept_id::Any
-    variables::Any
-    service_name::Any
-    service_type::Any
-    service_concept_id::Any
-    tool_name::Any
-    tool_type::Any
-    tool_concept_id::Any
-    polygon::Any
-    bounding_box::Any
-    point::Any
-    line::Any
-    circle::Any
-    attribute::Any
-    author::Any
-    has_granules::Any
-    has_granules_or_cwic::Any
-    has_granules_or_opensearch::Any
-    has_opendap_url::Any
-    cloud_hosted::Any
-    standard_product::Any
-    sort_key::Any
-    all_revisions::Any
-end
-
-struct QueryParams
-    page_size::Any
-    page_num::Any
-    offset::Any
-    scroll::Any
-    sort_key::Any
-    pretty::Any
-    token::Any
-    echo_compatible::Any
-end
-
-# function search(g::GranuleRequest)::Vector{Granule}
-#     granules(Dict(g)...)
-# end
-
-# function search(c::CollectionRequest)::Vector{Collection}
-#     collections(Dict(c)...)
-# end
-
-"""
     granules(; keyword=value, ...) -> Vector{Granules.UMM_G}
 
-Search for granules using NASA EarthDataSearch. Possible keywords are
-`$(fieldnames(GranuleRequest))` or `$(fieldnames(QueryParams))`.
+Search for granules using NASA EarthDataSearch.
+
+Each keyword is a CMR granule search parameter; see [`GranuleRequest`](@ref) for what they
+are and what each one accepts, and [`QueryParams`](@ref) for the paging keywords.
 
 ```jldoctest
 g = first(granules(short_name="GEDI02_A"))
@@ -277,13 +147,9 @@ function granules(;
     system::System=PROD,
     kwargs...,
 )
-    d = Dict(kwargs)
-    uk = setdiff(keys(d), fieldnames(GranuleRequest), fieldnames(QueryParams))
-    isempty(uk) ||
-        throw(ArgumentError("Unknown keyword argument(s): " * join(string.(uk), ", ")))
     request(
         granule_url(system),
-        Dict(zip(string.(keys(d)), values(d))),
+        build_request(GranuleRequest; kwargs...),
         Granules.UMM_G;
         page_num,
         page_size,
@@ -291,14 +157,17 @@ function granules(;
         all,
         method,
         requester,
+        extra=query_params(; kwargs...),
     )
 end
 
 """
     collections(; keyword=value, ...) -> Vector{Collections.UMM_C}
 
-Search for collections using NASA EarthData Search. Possible keywords are
-`$(fieldnames(CollectionRequest))` or `$(fieldnames(QueryParams))`.
+Search for collections using NASA EarthData Search.
+
+Each keyword is a CMR collection search parameter; see [`CollectionRequest`](@ref) for what
+they are and what each one accepts, and [`QueryParams`](@ref) for the paging keywords.
 """
 function collections(;
     page_num=1,
@@ -310,13 +179,9 @@ function collections(;
     system::System=PROD,
     kwargs...,
 )
-    d = Dict(kwargs)
-    uk = setdiff(keys(d), fieldnames(CollectionRequest), fieldnames(QueryParams))
-    isempty(uk) ||
-        throw(ArgumentError("Unknown keyword argument(s): " * join(string.(uk), ", ")))
     request(
         collection_url(system),
-        Dict(zip(string.(keys(d)), values(d))),
+        build_request(CollectionRequest; kwargs...),
         Collections.UMM_C;
         page_num,
         page_size,
@@ -324,6 +189,7 @@ function collections(;
         all,
         method,
         requester,
+        extra=query_params(; kwargs...),
     )
 end
 
@@ -339,28 +205,6 @@ function cmr_headers(search_after=nothing)
     headers = ["Client-Id" => "EarthData.jl"]
     isnothing(search_after) || push!(headers, "CMR-Search-After" => search_after)
     return headers
-end
-
-function cmr_query(query::Dict; page_num, page_size)
-    q = Dict{String,Any}("page_size" => page_size)
-    # CMR rejects `page_num` once a `CMR-Search-After` header is in play, so the caller
-    # passes `page_num=nothing` for every page after the first.
-    isnothing(page_num) || (q["page_num"] = page_num)
-    for (k, v) in query
-        isnothing(v) && continue
-        key = string(k)
-        # Spatial parameters also accept geometries and temporal ones dates; everything
-        # else is passed on as given.
-        sym = Symbol(key)
-        q[key] = if sym in spatial_params
-            cmr_spatial(sym, v)
-        elseif sym in temporal_params
-            cmr_temporal(sym, v)
-        else
-            v
-        end
-    end
-    return q
 end
 
 function header_value(headers, name::AbstractString)
@@ -393,7 +237,7 @@ end
 
 function request(
     url::AbstractString,
-    query::Dict,
+    query::AbstractRequest,
     T::Type;
     page_num=1,
     page_size=10,
@@ -401,8 +245,9 @@ function request(
     all=false,
     method=:POST,
     requester=HTTP.request,
+    extra=Pair{String,Any}[],
 )
-    q = cmr_query(query; page_num, page_size)
+    q = cmr_query(query; page_num, page_size, extra)
     vv = Vector{T}()
     search_after = nothing
     seen_search_after = Set{String}()
@@ -423,7 +268,7 @@ function request(
         # `page_num` and `CMR-Search-After` are mutually exclusive: sending both makes CMR
         # answer HTTP 400 "page_num is not allowed with search-after", so the first page's
         # `page_num` must be dropped before the second request goes out.
-        q = cmr_query(query; page_num=nothing, page_size)
+        q = cmr_query(query; page_num=nothing, page_size, extra)
     end
     vv
 end

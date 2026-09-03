@@ -10,9 +10,27 @@ granule_results = granules(short_name="GEDI02_A")
 collection_results = collections(short_name="GEDI02_A")
 ```
 
-The accepted keyword arguments are CMR search parameters. Use
-`fieldnames(EarthData.GranuleRequest)`, `fieldnames(EarthData.CollectionRequest)`,
-and `fieldnames(EarthData.QueryParams)` to inspect the supported names.
+The accepted keyword arguments are CMR search parameters, one per field of
+[`EarthData.GranuleRequest`](@ref) and [`EarthData.CollectionRequest`](@ref). Each
+field's docstring says what that parameter means, and its type is what the keyword
+accepts — so a wrong value is an error naming the keyword rather than an empty
+result:
+
+```julia
+julia> granules(version=61)
+ERROR: ArgumentError: `version` takes text, not the number 61; pass it as a string.
+CMR matches these literally and reports no error for a value that matches nothing,
+so a number comes back as an empty result rather than as a failure.
+version: Version of the parent collection.
+
+Matched literally and zero-padded, so this must be a string: `version="061"` finds
+MCD43A3, while `061` is the integer `61` in Julia and finds nothing.
+```
+
+Paging and formatting keywords are the fields of
+[`EarthData.QueryParams`](@ref). They are not search filters, so CMR reads them as written
+rather than through a parameter type. `page_size` and `page_num` are keywords of `granules`
+and `collections` themselves, since `all=true` pages through the results by setting them.
 
 ## Granules
 

@@ -246,7 +246,7 @@ end
     responses = [HTTP.Response(200, [], cmr_response(["G1"], "granule"))]
     gg = EarthData.request(
         "https://example.test/granules",
-        Dict("short_name" => "TEST"),
+        EarthData.GranuleRequest(short_name="TEST"),
         EarthData.Granules.UMM_G;
         requester=EarthData.classifying_requester(
             recording_requester(responses, requests),
