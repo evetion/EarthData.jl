@@ -79,11 +79,11 @@ StructTypes.names(::Type{CollectionMeta}) = (
 
 Base.@kwdef struct MetaGranule
     meta::GranuleMeta
-    umm::Granules.UMM_G
+    umm::GranuleSchema.UMM_G
 end
 Base.@kwdef struct MetaCollection
     meta::CollectionMeta
-    umm::Collections.UMM_C
+    umm::CollectionSchema.UMM_C
 end
 Base.@kwdef struct GranuleSearchResponse
     hits::Int
@@ -105,5 +105,5 @@ StructTypes.StructType(::Type{MetaCollection}) = StructTypes.Struct()
 
 # The response envelope a concept's records arrive in, so `request` can parse a body
 # knowing only the record type it was asked for.
-responsetype(::Type{Granules.UMM_G}) = GranuleSearchResponse
-responsetype(::Type{Collections.UMM_C}) = CollectionSearchResponse
+responsetype(::Type{GranuleSchema.UMM_G}) = GranuleSearchResponse
+responsetype(::Type{CollectionSchema.UMM_C}) = CollectionSearchResponse

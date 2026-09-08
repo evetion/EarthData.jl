@@ -247,7 +247,7 @@ end
     gg = EarthData.request(
         "https://example.test/granules",
         EarthData.GranuleRequest(short_name="TEST"),
-        EarthData.Granules.UMM_G;
+        EarthData.GranuleSchema.UMM_G;
         requester=EarthData.classifying_requester(
             recording_requester(responses, requests),
         ),
