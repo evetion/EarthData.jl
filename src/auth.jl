@@ -272,35 +272,34 @@ Pass the result as `auth` to `download` to skip resolution on every call. Search
 [`credentials`](@ref); this additionally proves the credential works, so a wrong password is
 reported now rather than midway through a download.
 
-Throws when a credential is present but rejected. Returns the anonymous `Auth` when no
-credential exists at all, since public data needs none.
+Throws when a credential is present but rejected. Returns the anonymous [`Auth`](@ref) when
+no credential exists at all, since public data needs none.
+
+Verification is one request against `/api/users/tokens`, which authenticates a bearer and a
+username/password alike. EDL rate-limits it and answers 5xx once tripped, so a transient
+failure is reported as such rather than as a bad credential.
 """
 function login(;
     machine::AbstractString="urs.earthdata.nasa.gov",
     requester=HTTP.request,
 )
-    available = credentials(; machine)
-    first_auth = first(available)
-    first_auth.kind === :anonymous && return first_auth
+    auth = first(credentials(; machine))
+    auth.kind === :anonymous && return auth
 
-    r = requester(
-        "GET",
-        "$(token_api)/tokens",
-        auth_headers(first_auth);
-        status_exception=false,
-    )
-    if r.status >= 400
-        error("""
-        Earthdata Login rejected the credential from $(first_auth.source) \
-        (HTTP $(r.status)).
-
-        $(String(r.body))
-
-        HTTP 401 means it is wrong or expired; tokens last 60 days. List or create one at
-        $(token_page).
-        """)
+    headers = if auth.kind === :netrc
+        # `.netrc` holds a username and password, which this endpoint takes as Basic auth.
+        user, pass = netrc_credentials(machine)
+        ["Authorization" => "Basic " * Base64.base64encode(string(user, ":", pass))]
+    else
+        auth_headers(auth)
     end
-    return first_auth
+    push!(headers, "Accept" => "application/json")
+
+    r = requester("GET", "$(token_api)/tokens", headers; status_exception=false)
+    # `check_response` separates a rejected credential from a rate-limited endpoint, and
+    # truncates the HTML error page EDL serves.
+    check_response(r, "verifying the credential from $(auth.source)")
+    return auth
 end
 
 """

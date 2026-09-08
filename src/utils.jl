@@ -66,6 +66,22 @@ function write_urls(urls::AbstractVector{<:AbstractString})
     return fn
 end
 
+# aria2c's input file, with a bearer as a `header=` line rather than a `--header` argument:
+# a command line is world-readable through `ps`, and `mktemp` creates this file mode 600.
+# The indent is what marks a line as an option belonging to the URI above it.
+function write_aria2_input(urls::AbstractVector{<:AbstractString}, bearer)
+    fn, io = mktemp()
+    try
+        for url in urls
+            println(io, url)
+            isnothing(bearer) || println(io, "  header=Authorization: Bearer ", bearer)
+        end
+    finally
+        close(io)
+    end
+    return fn
+end
+
 function url_filename(url::AbstractString)
     name = basename(first(split(url, "?"; limit=2)))
     isempty(name) && throw(ArgumentError("Cannot determine a filename from URL: $url"))
@@ -76,12 +92,6 @@ function download_paths(urls::AbstractVector{<:AbstractString}, folder::Abstract
     [joinpath(folder, url_filename(url)) for url in urls]
 end
 
-# The bearer aria2c should send, or `nothing` when `.netrc` alone will do. aria2c runs once
-# over the whole batch, so it gets a single credential rather than the fallback chain.
-function aria2_bearer(auth::Union{Nothing,Auth})
-    resolved = isnothing(auth) ? first(credentials()) : auth
-    return resolved.bearer
-end
 
 function download(
     urls::AbstractVector{<:AbstractString},
@@ -106,18 +116,17 @@ function download(
             end
         end
     else
-        fn = write_urls(urls)
+        # aria2c runs once over the whole batch, so it gets one credential rather than the
+        # fallback chain. A bearer is not in `.netrc`, so it travels in the input file.
+        bearer = (isnothing(auth) ? first(credentials()) : auth).bearer
+        fn = write_aria2_input(urls, bearer)
         try
             # aria2c reads `$HOME/.netrc` and has no `_netrc` fallback, so naming the file
             # is what lets a Windows user with only `_netrc` download. It also requires
             # mode 600, which `netrc!` sets.
-            #
-            # A bearer token is not in `.netrc`, so it goes on the command line as a header.
-            bearer = aria2_bearer(auth)
-            cmd = `$(Aria2_jll.aria2c()) --netrc-path=$(netrc_path()) -i $fn -c -d $folder`
-            isnothing(bearer) ||
-                (cmd = `$cmd --header=$("Authorization: Bearer " * bearer)`)
-            runner(cmd)
+            runner(
+                `$(Aria2_jll.aria2c()) --netrc-path=$(netrc_path()) -i $fn -c -d $folder`,
+            )
         finally
             rm(fn; force=true)
         end

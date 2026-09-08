@@ -388,3 +388,75 @@ end
         close(server)
     end
 end
+
+@testset "Credential verification" begin
+    mktempdir() do dir
+        withhome(dir, "EARTHDATA_TOKEN" => "stale-token") do
+            # A rejected credential names the source, so the user knows which one to fix.
+            reject(method, url, headers; kwargs...) = HTTP.Response(401, "expired")
+            err = try
+                EarthData.login(requester=reject)
+                nothing
+            catch e
+                e
+            end
+            @test err isa ArgumentError
+            @test occursin("EARTHDATA_TOKEN", sprint(showerror, err))
+
+            # EDL rate-limits this endpoint and answers 5xx once tripped. That is not a bad
+            # credential, and must not be reported as one.
+            throttled(method, url, headers; kwargs...) = HTTP.Response(500, "<html/>")
+            @test_throws EarthData.TransientError EarthData.login(requester=throttled)
+
+            accept(method, url, headers; kwargs...) = HTTP.Response(200, "[]")
+            @test EarthData.login(requester=accept).bearer == "stale-token"
+        end
+    end
+
+    # `.netrc` holds a username and password, which the endpoint takes as Basic auth.
+    mktempdir() do dir
+        netrc = joinpath(dir, ".netrc")
+        write(netrc, "machine urs.earthdata.nasa.gov login u password p\n")
+        chmod(netrc, 0o600)
+        withhome(dir, "EARTHDATA_TOKEN" => nothing) do
+            sent = Pair{String,String}[]
+            record(method, url, headers; kwargs...) =
+                (append!(sent, headers); HTTP.Response(200, "[]"))
+            @test EarthData.login(requester=record).kind === :netrc
+            @test any(((k, v),) -> k == "Authorization" && startswith(v, "Basic "), sent)
+        end
+    end
+end
+
+@testset "aria2c input file" begin
+    # A bearer travels in the input file, never in argv: a command line is world-readable
+    # through `ps`, and `mktemp` creates the file mode 600.
+    fn = EarthData.write_aria2_input(["https://example.test/a.h5"], "tok-secret")
+    try
+        @test read(fn, String) ==
+              "https://example.test/a.h5\n  header=Authorization: Bearer tok-secret\n"
+        Sys.iswindows() || @test filemode(fn) & 0o777 == 0o600
+    finally
+        rm(fn; force=true)
+    end
+
+    # Without a bearer the file is URLs alone, so `.netrc` remains the credential.
+    fn = EarthData.write_aria2_input(["https://example.test/a.h5"], nothing)
+    try
+        @test read(fn, String) == "https://example.test/a.h5\n"
+    finally
+        rm(fn; force=true)
+    end
+
+    captured = Ref{Cmd}(``)
+    mktempdir() do dir
+        withhome(dir, "EARTHDATA_TOKEN" => "tok-secret") do
+            EarthData.download(
+                ["https://example.test/a.h5"],
+                dir;
+                runner=cmd -> (captured[] = cmd; nothing),
+            )
+        end
+    end
+    @test !any(arg -> occursin("tok-secret", arg), captured[].exec)
+end
