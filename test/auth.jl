@@ -369,6 +369,15 @@ end
         close(server)
     end
 
+    # An empty chain is a caller error, not a silent no-op returning `nothing`.
+    mktempdir() do dir
+        @test_throws "No credential to try" EarthData.download_with_fallback(
+            "http://127.0.0.1:8643/f",
+            joinpath(dir, "out.bin"),
+            EarthData.Auth[],
+        )
+    end
+
     # A status another credential cannot fix propagates instead of walking the chain.
     server = HTTP.serve!("127.0.0.1", 8643; verbose=false) do _
         HTTP.Response(404, "nope")

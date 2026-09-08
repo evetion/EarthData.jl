@@ -20,26 +20,21 @@ end
 
 # Try each credential in turn. A bearer rejected with 401/403 must not end the download
 # while a working `.netrc` is still untried — curl will not fall back on its own, so an
-# expired token would otherwise mask credentials that work.
+# expired token would otherwise mask credentials that work. Any other status is not about
+# who is asking, so it propagates untouched.
 function download_with_fallback(url, fn, candidates; kwargs...)
+    isempty(candidates) &&
+        throw(ArgumentError("No credential to try; `credentials()` always offers one."))
     for (i, candidate) in enumerate(candidates)
-        headers = auth_headers(candidate)
         try
-            return Downloads.download(url, fn; headers, kwargs...)
+            return Downloads.download(url, fn; headers=auth_headers(candidate), kwargs...)
         catch err
-            last = i == lastindex(candidates)
-            (last || !is_credential_rejection(err)) && rethrow()
+            i == lastindex(candidates) && rethrow()
+            error_status(err) in (401, 403) || rethrow()
             @warn "Earthdata rejected the credential; trying the next one." source =
                 candidate.source next = candidates[i + 1].source
         end
     end
-end
-
-# 401 and 403 are the two statuses another credential could plausibly fix. Anything else is
-# not about who is asking, so it propagates untouched.
-function is_credential_rejection(err)
-    err isa Downloads.RequestError || return false
-    return err.response.status in (401, 403)
 end
 
 function write_urls(io::IO, urls::AbstractVector{<:AbstractString})
