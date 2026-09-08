@@ -11,8 +11,9 @@ import GeoInterface
 import Printf
 import Base64
 
-include("utils.jl")
+# `auth.jl` first: the download methods in `utils.jl` dispatch on `Auth`.
 include("auth.jl")
+include("utils.jl")
 abstract type AbstractJSON end
 include("umm/granules.jl")
 include("umm/collections.jl")

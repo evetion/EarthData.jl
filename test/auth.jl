@@ -1,6 +1,7 @@
 using HTTP
 using JSON3
 import Base64
+import Downloads
 
 # `homedir()` reads HOME on Unix but USERPROFILE on Windows (libuv's uv_os_homedir), so
 # redirecting only HOME leaves the real home directory in play on Windows.
@@ -288,5 +289,102 @@ end
             @test occursin("403", msg)
             @test occursin("two-token limit", msg)
         end
+    end
+end
+
+@testset "Credential resolution" begin
+    # Anonymous is always last and always present: much of what CMR indexes is public, so
+    # the absence of a credential must not be an error.
+    mktempdir() do dir
+        withhome(dir, "EARTHDATA_TOKEN" => nothing) do
+            found = EarthData.credentials()
+            @test length(found) == 1
+            @test only(found).kind === :anonymous
+            @test isnothing(only(found).bearer)
+            # No credential to verify, so `login` reports anonymous rather than throwing.
+            @test EarthData.login().kind === :anonymous
+        end
+    end
+
+    # The environment wins over the token file, which wins over .netrc.
+    mktempdir() do dir
+        write(joinpath(dir, ".edl_token"), "tok-from-file\n")
+        netrc = joinpath(dir, ".netrc")
+        write(netrc, "machine urs.earthdata.nasa.gov login u password p\n")
+        chmod(netrc, 0o600)
+
+        withhome(dir, "EARTHDATA_TOKEN" => "tok-from-env") do
+            found = EarthData.credentials()
+            @test [a.kind for a in found] == [:bearer, :bearer, :netrc, :anonymous]
+            @test first(found).bearer == "tok-from-env"
+            @test occursin("EARTHDATA_TOKEN", first(found).source)
+            @test found[2].bearer == "tok-from-file"
+            # .netrc carries no secret: curl, Downloads and aria2c read the file.
+            @test isnothing(found[3].bearer)
+            @test EarthData.auth_headers(found[3]) == Pair{String,String}[]
+            @test EarthData.auth_headers(found[4]) == Pair{String,String}[]
+        end
+    end
+
+    # A .netrc without a stanza for the machine is not a credential.
+    mktempdir() do dir
+        netrc = joinpath(dir, ".netrc")
+        write(netrc, "machine example.test login u password p\n")
+        chmod(netrc, 0o600)
+        withhome(dir, "EARTHDATA_TOKEN" => nothing) do
+            @test [a.kind for a in EarthData.credentials()] == [:anonymous]
+        end
+    end
+
+    @test EarthData.auth_headers(EarthData.Auth(:bearer, "test", "abc")) ==
+          ["Authorization" => "Bearer abc"]
+    @test occursin("anonymous", sprint(show, EarthData.Auth(:anonymous, "no credential")))
+end
+
+@testset "Download credential fallback" begin
+    # A stale bearer must not end the download while another credential is untried: curl
+    # does not fall back on its own, so an expired token would mask a working .netrc.
+    attempts = String[]
+    server = HTTP.serve!("127.0.0.1", 8642; verbose=false) do request
+        header = HTTP.header(request, "Authorization", "")
+        push!(attempts, isempty(header) ? "none" : "bearer")
+        startswith(header, "Bearer") ? HTTP.Response(401, "expired") :
+        HTTP.Response(200, "DATA")
+    end
+    try
+        mktempdir() do dir
+            path = joinpath(dir, "out.bin")
+            EarthData.download_with_fallback(
+                "http://127.0.0.1:8642/f",
+                path,
+                [
+                    EarthData.Auth(:bearer, "stale token", "tok-stale"),
+                    EarthData.Auth(:anonymous, "no credential"),
+                ],
+            )
+            @test attempts == ["bearer", "none"]
+            @test read(path, String) == "DATA"
+        end
+    finally
+        close(server)
+    end
+
+    # A status another credential cannot fix propagates instead of walking the chain.
+    server = HTTP.serve!("127.0.0.1", 8643; verbose=false) do _
+        HTTP.Response(404, "nope")
+    end
+    try
+        mktempdir() do dir
+            @test_throws Downloads.RequestError EarthData.download_with_fallback(
+                "http://127.0.0.1:8643/f",
+                joinpath(dir, "out.bin"),
+                [
+                    EarthData.Auth(:bearer, "token", "tok"),
+                    EarthData.Auth(:anonymous, "no credential"),
+                ],
+            )
+        end
+    finally
+        close(server)
     end
 end
