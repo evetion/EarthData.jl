@@ -1,5 +1,5 @@
 # This file is generated from gen/codegen.jl. Do not edit directly.
-module Collections
+module CollectionSchema
 using StructTypes
 using ..EarthData: AbstractJSON
 

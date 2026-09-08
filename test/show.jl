@@ -15,7 +15,7 @@ using JSON3
                     [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
             ),
         ),
-        EarthData.Granules.UMM_G,
+        EarthData.GranuleSchema.UMM_G,
     )
     @test sprint(show, granule) == "TEST: G1"
     @test sprint(show, MIME"text/plain"(), granule) == "TEST: G1"
@@ -34,7 +34,7 @@ using JSON3
                     [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
             ),
         ),
-        EarthData.Granules.UMM_G,
+        EarthData.GranuleSchema.UMM_G,
     )
     @test sprint(show, granule_without_reference) == "G2"
 
@@ -61,7 +61,7 @@ using JSON3
                 "DOI" => Dict(),
             ),
         ),
-        EarthData.Collections.UMM_C,
+        EarthData.CollectionSchema.UMM_C,
     )
     @test sprint(show, collection) == "TEST: Test collection"
     @test sprint(show, MIME"text/plain"(), collection) == "TEST: Test collection"

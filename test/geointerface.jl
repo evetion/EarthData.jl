@@ -14,7 +14,7 @@ function extent_granule(geometry)
         "ProviderDates" => [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
         "SpatialExtent" => Dict("HorizontalSpatialDomain" => Dict("Geometry" => geometry)),
     )
-    return JSON3.read(JSON3.write(umm), EarthData.Granules.UMM_G)
+    return JSON3.read(JSON3.write(umm), EarthData.GranuleSchema.UMM_G)
 end
 
 point(lon, lat) = Dict("Longitude" => lon, "Latitude" => lat)
@@ -26,7 +26,7 @@ rectangle(west, east, south, north) = Dict(
     "NorthBoundingCoordinate" => north,
 )
 
-const G = EarthData.Granules
+const G = EarthData.GranuleSchema
 
 @testset "Record equality" begin
     # A record is its fields, so two parsed from the same JSON describe the same thing. The
@@ -70,8 +70,8 @@ end
     @test GI.testgeometry(rect)
     @test GI.testgeometry(G.GeometryType([rect], nothing, [G.PointType(30.0, 40.0)], nothing))
 
-    # Collections generates field-identical structs, so the same union serves both.
-    C = EarthData.Collections
+    # CollectionSchema generates field-identical structs, so the same union serves both.
+    C = EarthData.CollectionSchema
     @test GI.testgeometry(C.PointType(3.0, 4.0))
     @test GI.testgeometry(C.BoundingRectangleType(60.0, -51.0, -49.0, 40.0))
 
@@ -215,7 +215,7 @@ end
 end
 
 @testset "GeoInterface.convert" begin
-    C = EarthData.Collections
+    C = EarthData.CollectionSchema
     ring = G.BoundaryType([
         G.PointType(-10.0, 0.0),
         G.PointType(5.0, 0.0),
@@ -251,7 +251,7 @@ end
     # A polygon with no holes gets no zone rather than an empty one.
     @test isnothing(GI.convert(G.GPolygonType, G.GPolygonType(nothing, ring)).ExclusiveZone)
 
-    # `Granules` and `Collections` generate field-identical structs, so a geometry from one
+    # The two schema modules generate field-identical structs, so a geometry from one
     # converts into the other — which is what a collection search needs from a granule result.
     @test GI.convert(C.GPolygonType, holed) isa C.GPolygonType
     @test GI.nhole(GI.convert(C.GPolygonType, holed)) == 1
@@ -259,7 +259,7 @@ end
 end
 
 @testset "GeoInterface.convert to a module" begin
-    C = EarthData.Collections
+    C = EarthData.CollectionSchema
     extent = Extent(X=(-51.0, -49.0), Y=(66.0, 68.0))
     point = GI.Wrappers.Point((3.0, 4.0))
     ring = GI.Wrappers.LinearRing([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 0.0)])
@@ -269,7 +269,7 @@ end
     # Naming a module rather than a type: GeoInterface resolves the target through
     # `geointerface_geomtype`, so the caller does not have to know which UMM struct a trait
     # corresponds to.
-    for (M, T) in ((EarthData.Granules, G), (C, C))
+    for (M, T) in ((EarthData.GranuleSchema, G), (C, C))
         @test GI.convert(M, extent) isa T.BoundingRectangleType
         @test GI.convert(M, point) isa T.PointType
         @test GI.convert(M, line) isa T.LineType
@@ -278,7 +278,7 @@ end
     end
 
     # The values have to survive the extra indirection, not just the types.
-    rect = GI.convert(EarthData.Granules, extent)
+    rect = GI.convert(EarthData.GranuleSchema, extent)
     @test rect.WestBoundingCoordinate == -51.0
     @test rect.NorthBoundingCoordinate == 68.0
     @test GI.convert(C, point) == C.PointType(3.0, 4.0)
@@ -288,12 +288,12 @@ end
     @test GI.convert(EarthData, polygon) isa G.GPolygonType
 
     # The curried form is part of the documented API.
-    @test GI.convert(EarthData.Granules)(extent) isa G.BoundingRectangleType
+    @test GI.convert(EarthData.GranuleSchema)(extent) isa G.BoundingRectangleType
     @test map(GI.convert(C), [point, point]) == [C.PointType(3.0, 4.0), C.PointType(3.0, 4.0)]
 
     # A geometry from one module converts through the other's module name, which is the
     # module-level counterpart of the cross-module conversion above.
-    @test GI.convert(EarthData.Granules, C.BoundingRectangleType(extent)) isa
+    @test GI.convert(EarthData.GranuleSchema, C.BoundingRectangleType(extent)) isa
           G.BoundingRectangleType
     @test GI.convert(C, G.PointType(3.0, 4.0)) == C.PointType(3.0, 4.0)
 end
@@ -322,7 +322,7 @@ end
                     [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
             ),
         ),
-        EarthData.Granules.UMM_G,
+        EarthData.GranuleSchema.UMM_G,
     )
     @test isnothing(GI.geometry(bare))
     @test isnothing(Extents.extent(bare))
@@ -417,7 +417,7 @@ end
                     [Dict("Type" => "Insert", "Date" => "2020-01-01T00:00:00Z")],
             ),
         ),
-        EarthData.Granules.UMM_G,
+        EarthData.GranuleSchema.UMM_G,
     )
     @test GI.testfeature(bare)
     @test isnothing(GI.geometry(bare))
@@ -439,6 +439,6 @@ end
     @test GI.extent(records) == Extent(X=(-51.0, 30.0), Y=(40.0, 60.0))
 
     # An empty result has no extent rather than a zero-width one at the origin.
-    @test isnothing(Extents.extent(EarthData.Granules.UMM_G[]))
-    @test GI.nfeature(EarthData.Granules.UMM_G[]) == 0
+    @test isnothing(Extents.extent(EarthData.GranuleSchema.UMM_G[]))
+    @test GI.nfeature(EarthData.GranuleSchema.UMM_G[]) == 0
 end

@@ -145,7 +145,7 @@ end
     result = EarthData.request(
         "https://example.test/granules",
         EarthData.GranuleRequest(short_name="TEST"),
-        EarthData.Granules.UMM_G;
+        EarthData.GranuleSchema.UMM_G;
         page_size=2,
         all=true,
         requester=recording_requester(responses, requests),
@@ -183,7 +183,7 @@ end
     EarthData.request(
         "https://example.test/granules",
         EarthData.GranuleRequest(short_name="TEST"),
-        EarthData.Granules.UMM_G;
+        EarthData.GranuleSchema.UMM_G;
         page_size=1,
         all=true,
         method=:GET,
@@ -202,7 +202,7 @@ end
     result = EarthData.request(
         "https://example.test/granules",
         EarthData.GranuleRequest(short_name="TEST"),
-        EarthData.Granules.UMM_G;
+        EarthData.GranuleSchema.UMM_G;
         method=:GET,
         requester=recording_requester(responses, requests),
     )
@@ -248,7 +248,7 @@ end
         requester=recording_requester(responses, requests),
     )
 
-    @test result isa Vector{EarthData.Collections.UMM_C}
+    @test result isa Vector{EarthData.CollectionSchema.UMM_C}
     @test only(result).ShortName == "C1"
     @test only(result).MetadataDates[1].Date === nothing
     @test requests[1].url == EarthData.collection_url()
@@ -263,7 +263,7 @@ end
         EarthData.request(
             "https://example.test/granules",
             EarthData.GranuleRequest(short_name="TEST"),
-            EarthData.Granules.UMM_G;
+            EarthData.GranuleSchema.UMM_G;
             requester=recording_requester(responses, requests),
         ),
     )
@@ -302,7 +302,7 @@ end
         EarthData.request(
             "https://example.test/granules",
             EarthData.GranuleRequest(short_name="TEST"),
-            EarthData.Granules.UMM_G;
+            EarthData.GranuleSchema.UMM_G;
             requester=recording_requester(responses, requests),
         ),
     )
@@ -355,7 +355,7 @@ end
     granules = EarthData.request(
         "https://example.test/granules",
         EarthData.GranuleRequest(short_name="TEST"),
-        EarthData.Granules.UMM_G;
+        EarthData.GranuleSchema.UMM_G;
         requester=recording_requester(responses, requests),
     )
 

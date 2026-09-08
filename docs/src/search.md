@@ -34,7 +34,7 @@ and `collections` themselves, since `all=true` pages through the results by sett
 
 ## Granules
 
-`granules` returns `Vector{EarthData.Granules.UMM_G}`. Each record exposes the UMM-G
+`granules` returns `Vector{EarthData.GranuleSchema.UMM_G}`. Each record exposes the UMM-G
 fields from NASA's schema as Julia struct fields:
 
 ```julia
@@ -158,7 +158,7 @@ want rather than a search parameter.
 ## Collections
 
 `collections` searches collection metadata and returns
-`Vector{EarthData.Collections.UMM_C}`:
+`Vector{EarthData.CollectionSchema.UMM_C}`:
 
 ```julia
 cc = collections(short_name="GEDI02_A")
