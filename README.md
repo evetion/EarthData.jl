@@ -23,7 +23,7 @@ julia> using EarthData
 
 # Search for GEDI L2A granules
 julia> gg = granules(short_name="GEDI02_A")
-10-element Vector{EarthData.Granules.UMM_G}:
+10-element Vector{EarthData.GranuleSchema.UMM_G}:
  GEDI02_A: GEDI02_A_2019108002012_O01959_01_T03909_02_003_01_V002
  GEDI02_A: GEDI02_A_2019108002012_O01959_02_T03909_02_003_01_V002
  GEDI02_A: GEDI02_A_2019108002012_O01959_03_T03909_02_003_01_V002

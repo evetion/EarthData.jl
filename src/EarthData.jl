@@ -18,6 +18,11 @@ abstract type AbstractJSON end
 include("umm/granules.jl")
 include("umm/collections.jl")
 include("umm/response.jl")
+
+# The generated schema modules were named `Granules` and `Collections` through 0.2.
+Base.@deprecate_binding Granules GranuleSchema
+Base.@deprecate_binding Collections CollectionSchema
+
 include("display.jl")
 include("show.jl")
 include("stub.jl")  # empty methods that are actually defined in extensions
@@ -89,7 +94,7 @@ collection_url(system::System=PROD) =
     search_url(system, "collections", collection_umm_json_version)
 
 """
-    granules(; keyword=value, ...) -> Vector{Granules.UMM_G}
+    granules(; keyword=value, ...) -> Vector{GranuleSchema.UMM_G}
 
 Search for granules using NASA EarthDataSearch.
 
@@ -116,7 +121,7 @@ function granules(;
     request(
         granule_url(system),
         build_request(GranuleRequest; kwargs...),
-        Granules.UMM_G;
+        GranuleSchema.UMM_G;
         page_num,
         page_size,
         verbose,
@@ -128,7 +133,7 @@ function granules(;
 end
 
 """
-    collections(; keyword=value, ...) -> Vector{Collections.UMM_C}
+    collections(; keyword=value, ...) -> Vector{CollectionSchema.UMM_C}
 
 Search for collections using NASA EarthData Search.
 
@@ -148,7 +153,7 @@ function collections(;
     request(
         collection_url(system),
         build_request(CollectionRequest; kwargs...),
-        Collections.UMM_C;
+        CollectionSchema.UMM_C;
         page_num,
         page_size,
         verbose,

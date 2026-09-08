@@ -42,7 +42,7 @@ const s3_credentials_deadline_s = 120.0
         @test length(gg) == 10
 
         g = gg[1]
-        @test g isa EarthData.Granules.UMM_G
+        @test g isa EarthData.GranuleSchema.UMM_G
 
         @test_throws ErrorException granules()
 

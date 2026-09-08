@@ -7,18 +7,19 @@ may carry several kinds at once, so `GeometryType` is a geometry collection. Imp
 the traits also makes these types valid search inputs, since [`cmr_spatial`](@ref) already
 dispatches on them.
 
-`Granules` and `Collections` generate field-identical geometry structs, so each method takes
-the `Union` of both and one implementation serves granules and collections alike.
+`GranuleSchema` and `CollectionSchema` generate field-identical geometry structs, so each
+method takes the `Union` of both and one implementation serves granules and collections
+alike.
 """
 
-const UMMPoint = Union{Granules.PointType,Collections.PointType}
-const UMMLine = Union{Granules.LineType,Collections.LineType}
-const UMMBoundary = Union{Granules.BoundaryType,Collections.BoundaryType}
+const UMMPoint = Union{GranuleSchema.PointType,CollectionSchema.PointType}
+const UMMLine = Union{GranuleSchema.LineType,CollectionSchema.LineType}
+const UMMBoundary = Union{GranuleSchema.BoundaryType,CollectionSchema.BoundaryType}
 const UMMRectangle =
-    Union{Granules.BoundingRectangleType,Collections.BoundingRectangleType}
-const UMMPolygon = Union{Granules.GPolygonType,Collections.GPolygonType}
-const UMMGeometry = Union{Granules.GeometryType,Collections.GeometryType}
-const UMMRecord = Union{Granules.UMM_G,Collections.UMM_C}
+    Union{GranuleSchema.BoundingRectangleType,CollectionSchema.BoundingRectangleType}
+const UMMPolygon = Union{GranuleSchema.GPolygonType,CollectionSchema.GPolygonType}
+const UMMGeometry = Union{GranuleSchema.GeometryType,CollectionSchema.GeometryType}
+const UMMRecord = Union{GranuleSchema.UMM_G,CollectionSchema.UMM_C}
 
 GeoInterface.isgeometry(::Type{<:UMMPoint}) = true
 GeoInterface.geomtrait(::UMMPoint) = GeoInterface.PointTrait()
@@ -111,28 +112,28 @@ end
 # per module rather than a method per geometry: the module is the only thing being decided,
 # and `GeoInterface.convert` is handed a type while the trait methods hold an instance.
 const GranulesGeometry = Union{
-    Granules.PointType,
-    Granules.LineType,
-    Granules.BoundaryType,
-    Granules.GPolygonType,
-    Granules.BoundingRectangleType,
-    Granules.GeometryType,
+    GranuleSchema.PointType,
+    GranuleSchema.LineType,
+    GranuleSchema.BoundaryType,
+    GranuleSchema.GPolygonType,
+    GranuleSchema.BoundingRectangleType,
+    GranuleSchema.GeometryType,
 }
 const CollectionsGeometry = Union{
-    Collections.PointType,
-    Collections.LineType,
-    Collections.BoundaryType,
-    Collections.GPolygonType,
-    Collections.BoundingRectangleType,
-    Collections.GeometryType,
+    CollectionSchema.PointType,
+    CollectionSchema.LineType,
+    CollectionSchema.BoundaryType,
+    CollectionSchema.GPolygonType,
+    CollectionSchema.BoundingRectangleType,
+    CollectionSchema.GeometryType,
 }
 
-pointtype(::Type{<:GranulesGeometry}) = Granules.PointType
-pointtype(::Type{<:CollectionsGeometry}) = Collections.PointType
-boundarytype(::Type{<:GranulesGeometry}) = Granules.BoundaryType
-boundarytype(::Type{<:CollectionsGeometry}) = Collections.BoundaryType
-exclusivezonetype(::Type{<:GranulesGeometry}) = Granules.ExclusiveZoneType
-exclusivezonetype(::Type{<:CollectionsGeometry}) = Collections.ExclusiveZoneType
+pointtype(::Type{<:GranulesGeometry}) = GranuleSchema.PointType
+pointtype(::Type{<:CollectionsGeometry}) = CollectionSchema.PointType
+boundarytype(::Type{<:GranulesGeometry}) = GranuleSchema.BoundaryType
+boundarytype(::Type{<:CollectionsGeometry}) = CollectionSchema.BoundaryType
+exclusivezonetype(::Type{<:GranulesGeometry}) = GranuleSchema.ExclusiveZoneType
+exclusivezonetype(::Type{<:CollectionsGeometry}) = CollectionSchema.ExclusiveZoneType
 
 pointtype(g::AbstractJSON) = pointtype(typeof(g))
 boundarytype(g::AbstractJSON) = boundarytype(typeof(g))
@@ -147,17 +148,17 @@ rectangle, not just an `Extent`.
 
 ```jldoctest
 extent = EarthData.Extents.Extent(X=(-51.0, -49.0), Y=(40.0, 60.0))
-rect = EarthData.Granules.BoundingRectangleType(extent)
+rect = EarthData.GranuleSchema.BoundingRectangleType(extent)
 rect.WestBoundingCoordinate
 # output
 -51.0
 ```
 """
-Granules.BoundingRectangleType(extent::Extents.Extent) =
-    rectangle_from_extent(Granules.BoundingRectangleType, extent)
+GranuleSchema.BoundingRectangleType(extent::Extents.Extent) =
+    rectangle_from_extent(GranuleSchema.BoundingRectangleType, extent)
 
-Collections.BoundingRectangleType(extent::Extents.Extent) =
-    rectangle_from_extent(Collections.BoundingRectangleType, extent)
+CollectionSchema.BoundingRectangleType(extent::Extents.Extent) =
+    rectangle_from_extent(CollectionSchema.BoundingRectangleType, extent)
 
 # Building a UMM rectangle from any GeoInterface rectangle, which is how coverage computed
 # elsewhere becomes a record: `GeoInterface.convert` dispatches on the trait, so this covers
@@ -200,8 +201,8 @@ function GeoInterface.convert(
     return P(zone, exterior)
 end
 
-# Which UMM type answers a trait, so `GeoInterface.convert(EarthData.Granules, geom)` picks
-# the target itself: GeoInterface's module-level `convert` looks up
+# Which UMM type answers a trait, so `GeoInterface.convert(EarthData.GranuleSchema, geom)`
+# picks the target itself: GeoInterface's module-level `convert` looks up
 # `<module>.geointerface_geomtype(trait)` and calls the type-level methods above with the
 # result. The function has to belong to the module being named, and the two UMM modules are
 # generated, so the methods are added here rather than by `gen/codegen.jl`.
@@ -209,7 +210,7 @@ end
 # `LineStringTrait` maps to a line: a ring converts to a `BoundaryType` only when its trait
 # says `LinearRingTrait`, since a boundary is a polygon part rather than a geometry CMR
 # accepts on its own.
-for M in (Granules, Collections)
+for M in (GranuleSchema, CollectionSchema)
     @eval M begin
         geointerface_geomtype(::$(GeoInterface.PointTrait)) = PointType
         geointerface_geomtype(::$(GeoInterface.LineStringTrait)) = LineType
@@ -227,10 +228,10 @@ The UMM type that `trait` converts to, for `GeoInterface.convert(EarthData, geom
 Granule types, since a search returns granules far more often than collections. The two
 modules generate field-identical geometry structs and [`cmr_spatial`](@ref) sends either as
 the same text, so the choice only shows in the returned type; name
-`EarthData.Collections` to get the other.
+`EarthData.CollectionSchema` to get the other.
 """
 geointerface_geomtype(trait::GeoInterface.AbstractTrait) =
-    Granules.geointerface_geomtype(trait)
+    GranuleSchema.geointerface_geomtype(trait)
 
 # The fields are declared (North, West, East, South), so the mapping from an extent lives
 # here once: writing it per module is how one of them ends up transposed.

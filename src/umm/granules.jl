@@ -1,5 +1,5 @@
 # This file is generated from gen/codegen.jl. Do not edit directly.
-module Granules
+module GranuleSchema
 using StructTypes
 using ..EarthData: AbstractJSON
 

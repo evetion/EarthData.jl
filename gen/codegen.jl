@@ -26,14 +26,14 @@ const schemas = [
         family="granule",
         suffix="g",
         version="v1.6.6",
-        module_name="Granules",
+        module_name="GranuleSchema",
         output=joinpath("src", "umm", "granules.jl"),
     ),
     SchemaSpec(
         family="collection",
         suffix="c",
         version="v1.17.0",
-        module_name="Collections",
+        module_name="CollectionSchema",
         output=joinpath("src", "umm", "collections.jl"),
         # Some CMR collection records contain legacy MetadataDates with a Type
         # but no Date even though the common schema marks Date as required.
