@@ -1,8 +1,10 @@
 using HTTP
 using JSON3
 
+# CMR sends a different `meta` block per concept type: a granule names its collection, a
+# collection carries the service capabilities instead.
 function cmr_meta(id, concept_type)
-    Dict(
+    meta = Dict(
         "concept-type" => concept_type,
         "concept-id" => id,
         "revision-id" => 1,
@@ -11,6 +13,24 @@ function cmr_meta(id, concept_type)
         "format" => "application/json",
         "revision-date" => "2020-01-01T00:00:00Z",
     )
+    if concept_type == "granule"
+        meta["collection-concept-id"] = "C1-TEST"
+    else
+        merge!(
+            meta,
+            Dict(
+                "user-id" => "tester",
+                "deleted" => false,
+                "has-combine" => false,
+                "has-formats" => false,
+                "has-spatial-subsetting" => false,
+                "has-temporal-subsetting" => false,
+                "has-transforms" => false,
+                "has-variables" => false,
+            ),
+        )
+    end
+    return meta
 end
 
 function granule_umm(id)
