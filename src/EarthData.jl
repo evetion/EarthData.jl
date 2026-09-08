@@ -16,6 +16,7 @@ include("auth.jl")
 abstract type AbstractJSON end
 include("umm/granules.jl")
 include("umm/collections.jl")
+include("umm/response.jl")
 include("display.jl")
 include("show.jl")
 include("stub.jl")  # empty methods that are actually defined in extensions
@@ -85,42 +86,6 @@ granule_url(system::System=PROD) =
     search_url(system, "granules", granule_umm_json_version)
 collection_url(system::System=PROD) =
     search_url(system, "collections", collection_umm_json_version)
-
-struct Meta
-    var"concept-type"::String
-    var"concept-id"::String
-    var"revision-id"::Int
-    var"native-id"::String
-    var"provider-id"::String
-    format::String
-    var"revision-date"::String
-end
-
-Base.@kwdef struct MetaGranule
-    meta::Meta
-    umm::Granules.UMM_G
-end
-Base.@kwdef struct MetaCollection
-    meta::Meta
-    umm::Collections.UMM_C
-end
-Base.@kwdef struct GranuleSearchResponse
-    hits::Int
-    took::Int
-    items::Vector{MetaGranule} = MetaGranule[]
-end
-Base.@kwdef struct CollectionSearchResponse
-    hits::Int
-    took::Int
-    items::Vector{MetaCollection} = MetaCollection[]
-end
-
-StructTypes.StructType(::Type{GranuleSearchResponse}) = StructTypes.Struct()
-StructTypes.StructType(::Type{MetaGranule}) = StructTypes.Struct()
-StructTypes.StructType(::Type{CollectionSearchResponse}) = StructTypes.Struct()
-StructTypes.StructType(::Type{MetaCollection}) = StructTypes.Struct()
-responsetype(::Type{Granules.UMM_G}) = GranuleSearchResponse
-responsetype(::Type{Collections.UMM_C}) = CollectionSearchResponse
 
 """
     granules(; keyword=value, ...) -> Vector{Granules.UMM_G}
