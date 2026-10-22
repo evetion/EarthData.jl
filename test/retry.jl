@@ -74,12 +74,9 @@ end
     )
 
     # HTTP.jl's StatusError is split the same way.
-    status_error(status) = HTTP.Exceptions.StatusError(
-        status,
-        "GET",
-        "/f.h5",
-        HTTP.Response(status, [], "body"),
-    )
+    status_error(status) =
+        pkgversion(HTTP) >= v"2" ? HTTP.StatusError(HTTP.Response(status, [], "body")) :
+        HTTP.StatusError(status, "GET", "/f.h5", HTTP.Response(status, [], "body"))
     @test !EarthData.is_transient(status_error(403))
     @test EarthData.is_transient(status_error(503))
 

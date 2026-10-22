@@ -225,7 +225,7 @@ function request(
 
     while true
         r = cmr_http_request(requester, method, url, cmr_headers(search_after), q; verbose)
-        HTTP.iserror(r) && error(parse_cmr_error(r))
+        iserror(r) && error(parse_cmr_error(r))
         body = JSON3.read(r.body, responsetype(T))
         v = map(x -> x.umm, body.items)
         append!(vv, v)

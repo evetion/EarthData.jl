@@ -98,8 +98,16 @@ The exception type alone does not say whether a failure was temporary.
 never will be are the same type, so the status has to be read rather than inferred.
 """
 error_status(err::Downloads.RequestError) = err.response.status
-error_status(err::HTTP.Exceptions.StatusError) = err.status
+error_status(err::HTTP.StatusError) = err.status
 error_status(err) = 0
+
+# Whether a response has an error status, the rule of `HTTP.iserror`, which HTTP.jl 2 removed.
+iserror(r) = r.status >= 300 && !(r.status in (301, 302, 303, 307, 308))
+
+# HTTP.jl 1 wraps connection failures in a `RequestError`, HTTP.jl 2 throws them unwrapped.
+http_transport_error(err) =
+    isdefined(HTTP, :RequestError) ? err isa HTTP.RequestError :
+    err isa Exception && HTTP.isrecoverable(err)
 
 """
     is_transient_status(status) -> Bool
@@ -123,9 +131,9 @@ function is_transient(err)
     status = error_status(err)
     status >= 400 && return is_transient_status(status)
     return err isa TransientError ||
-           err isa HTTP.Exceptions.ConnectError ||
-           err isa HTTP.Exceptions.TimeoutError ||
-           err isa HTTP.Exceptions.RequestError ||
+           err isa HTTP.ConnectError ||
+           err isa HTTP.TimeoutError ||
+           http_transport_error(err) ||
            err isa Downloads.RequestError ||
            err isa Base.IOError ||
            err isa EOFError
